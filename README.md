@@ -11,7 +11,10 @@ Paste a Twitch, YouTube or Kick VOD link and the pipeline does the rest:
 5. Renders 1080×1920 Shorts in one of several layouts (blur-fill or facecam-on-top) with bold word-by-word captions and a credit line for the streamer.
 6. Writes the title, description (with a timestamped source link) and tags, then optionally uploads to YouTube.
 
-Everything runs on your own machine or on free GitHub Actions runners. There are no paid APIs, no credits and no watermark.
+Everything runs on your own machine or on free GitHub Actions runners.
+
+> **New here? Start with [docs/GETTING_STARTED.md](docs/GETTING_STARTED.md)**: click-by-click steps, no coding needed.
+> **What's next: [docs/ROADMAP.md](docs/ROADMAP.md)**, a phased plan from first clip to a growing channel. There are no paid APIs, no credits and no watermark.
 
 ---
 
@@ -153,6 +156,7 @@ All defaults are in [`config/settings.yaml`](config/settings.yaml) and every opt
 | `detection.weights.*` | | how much each signal counts |
 | `detection.keywords` | GTA hype words | boosts moments where these are said |
 | `render.layout` | `blur` | `blur` (16:9 over blurred fill), `facecam` (cam on top, game below), `crop`, `landscape` |
+| `render.fps` | 30 | 30 or 60 |
 | `render.facecam_box` | bottom-left | where the webcam sits in the source frame (0–1) |
 | `captions.model` | `base` | `tiny` is fastest; `small` is more accurate |
 | `metadata.title_template` | `{streamer} {hook} 😱 #GTA6 #Shorts` | also `{vod_title}` |
