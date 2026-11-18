@@ -141,6 +141,7 @@ form > label, .grid2 { margin-top: 14px; }
 .stages li.now { color: #1a0b1f; background: var(--grad); border-color: transparent; font-weight: 600; }
 .status-msg { margin: 12px 0 0; font-size: 14px; }
 .status-msg.err { color: var(--red); white-space: pre-wrap; }
+.status-msg.warn { color: var(--orange); white-space: pre-wrap; }
 .actions { display: flex; gap: 8px; }
 
 .chart-wrap { margin-top: 18px; }

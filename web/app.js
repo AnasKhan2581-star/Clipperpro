@@ -164,6 +164,8 @@ async function renderJob() {
   const msg = $("#d-msg");
   msg.className = "status-msg" + (j.status === "failed" ? " err" : "");
   msg.textContent = j.status === "failed" ? "✘ " + (j.error || "Failed") : j.message || "";
+  const warn = (m && m.warnings) || [];
+  if (warn.length) { msg.classList.add("warn"); msg.textContent += "\n⚠ " + warn.join("\n⚠ "); }
   $("#d-logs").textContent = (j.logs || []).join("\n");
 
   const act = $("#d-actions"); act.innerHTML = "";

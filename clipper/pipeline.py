@@ -117,6 +117,7 @@ def run(source: str, outdir: Path, overrides: dict | None = None, reporter: Repo
     cap_cfg = settings["captions"]
     keywords = det.get("keywords") or []
     want_transcript = cap_cfg.get("enabled", True) or det.get("weights", {}).get("keywords", 0) > 0
+    warnings: list[str] = []
     seg_cache: dict[int, list[dict]] = {}
     for i, c in enumerate(cands):
         segments: list[dict] = []
@@ -127,7 +128,9 @@ def run(source: str, outdir: Path, overrides: dict | None = None, reporter: Repo
             except Cancelled:
                 raise
             except Exception as exc:  # captions are optional; keep going
-                rep("transcribe", 0.42 + 0.28 * i / len(cands), f"Transcription failed ({exc}); continuing without")
+                msg = f"AI captions unavailable ({exc}). Clips were made without captions/keyword ranking."
+                rep("transcribe", 0.42 + 0.28 * i / len(cands), "⚠ " + msg)
+                warnings.append(msg)
                 want_transcript = False
         text = " ".join(s["text"] for s in segments)
         c.keyword_hits = highlights.count_keywords(text, keywords)
@@ -191,6 +194,7 @@ def run(source: str, outdir: Path, overrides: dict | None = None, reporter: Repo
         "streamer": entry,
         "settings": settings,
         "clips": results,
+        "warnings": warnings,
         "chart": {
             "duration": duration,
             "score": analysis.resample_for_chart(score),
@@ -200,7 +204,7 @@ def run(source: str, outdir: Path, overrides: dict | None = None, reporter: Repo
     }
     (outdir / "manifest.json").write_text(json.dumps(manifest, indent=2, ensure_ascii=False, default=_json_default))
     shutil.rmtree(work, ignore_errors=True)
-    rep("done", 1.0, f"Done — {len(results)} clips ready")
+    rep("done", 1.0, f"Done — {len(results)} clips ready" + (f" ({len(warnings)} warning)" if warnings else ""))
     return manifest
 
 

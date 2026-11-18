@@ -58,3 +58,13 @@ def test_direct_url_without_range_support_falls_back(sample_video, tmp_path, mon
     assert clip["start"] <= 41 and clip["end"] >= 45
     assert "t=" in clip["source_link"]
     assert (tmp_path / clip["file"]).exists()
+
+
+def test_caption_failure_is_reported_not_silent(sample_video, tmp_path, monkeypatch):
+    def boom(*a, **k):
+        raise RuntimeError("model download blocked")
+    monkeypatch.setattr(pipeline, "_transcribe", boom)
+    overrides = {"clips": {"count": 1, "min_seconds": 15, "max_seconds": 25, "target_seconds": 20}}
+    m = pipeline.run(str(sample_video), tmp_path, overrides, streamer_override="Tester")
+    assert len(m["clips"]) == 1
+    assert m["warnings"] and "model download blocked" in m["warnings"][0]

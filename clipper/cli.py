@@ -36,6 +36,8 @@ def cmd_run(a: argparse.Namespace) -> int:
     manifest = pipeline.run(a.source, out, _overrides(a), pipeline.Reporter(on_progress=progress),
                             streamer_override=a.streamer)
     print(f"\n✔ {len(manifest['clips'])} clips in {out}/clips")
+    for w in manifest.get("warnings", []):
+        print(f"⚠ {w}")
     for c in manifest["clips"]:
         print(f"  {c['file']}  {c['duration']:>5.1f}s  score {c['score']:>6.2f}  {c['title']}")
     if a.upload:
