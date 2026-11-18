@@ -80,11 +80,21 @@ def _pick(score: np.ndarray, n: int, clip_cfg: dict, duration: float, gap: float
     return chosen
 
 
+_NUMBERS = {"0": "zero", "1": "one", "2": "two", "3": "three", "4": "four", "5": "five",
+            "6": "six", "7": "seven", "8": "eight", "9": "nine", "10": "ten"}
+
+
+def _normalize(text: str) -> str:
+    """Lowercase, strip punctuation and spell out small numbers (Whisper writes "5 stars")."""
+    text = re.sub(r"[^a-z0-9'? ]+", " ", text.lower())
+    return re.sub(r"\b(10|[0-9])\b", lambda m: _NUMBERS[m.group(1)], text)
+
+
 def count_keywords(text: str, keywords: list[str]) -> int:
-    text = " " + re.sub(r"[^a-z0-9'? ]+", " ", text.lower()) + " "
+    text = " " + _normalize(text) + " "
     hits = 0
     for kw in keywords:
-        kw = kw.lower().strip()
+        kw = _normalize(kw).strip()
         if not kw:
             continue
         hits += len(re.findall(r"(?<![a-z0-9])" + re.escape(kw) + r"(?![a-z0-9])", text))

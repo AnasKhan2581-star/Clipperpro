@@ -32,6 +32,7 @@ jobs:
           if grep -qE '^\s*-\s*url:' config/watchlist.yaml; then echo "run=true" >> "$GITHUB_OUTPUT";
           else echo "No channels in config/watchlist.yaml — nothing to do."; fi
       - uses: ./.github/actions/setup
+        timeout-minutes: 20
         if: steps.check.outputs.run == 'true'
       - name: Write yt-dlp cookies (optional)
         if: steps.check.outputs.run == 'true'

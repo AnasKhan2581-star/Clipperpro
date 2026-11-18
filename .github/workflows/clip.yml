@@ -68,6 +68,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - uses: ./.github/actions/setup
+        timeout-minutes: 20
         with:
           whisper-model: ${{ inputs.whisper_model }}
 

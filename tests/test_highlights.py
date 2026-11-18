@@ -32,6 +32,9 @@ def test_keyword_count_is_word_bounded():
     kws = ["no way", "run", "cops"]
     assert highlights.count_keywords("NO WAY bro, run! the cops, the COPS", kws) == 4
     assert highlights.count_keywords("running brunch", kws) == 0
+    # Whisper writes digits; keywords are written as words (and vice versa)
+    assert highlights.count_keywords("The cops are chasing us. 5 stars.", ["five stars", "gta 6"]) == 1
+    assert highlights.count_keywords("this is GTA six", ["gta 6"]) == 1
 
 
 def test_refine_snaps_to_sentences_and_respects_limits():

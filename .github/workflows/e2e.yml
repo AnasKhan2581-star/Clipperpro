@@ -23,9 +23,11 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - uses: ./.github/actions/setup
+        timeout-minutes: 15
         with:
           whisper-model: tiny
-      - run: sudo apt-get install -y -qq espeak-ng > /dev/null
+      - run: .github/actions/setup/apt.sh espeak-ng
+        timeout-minutes: 15
       - run: mkdir -p e2e && tests/e2e/make_vod.sh e2e/vod.mp4
       - run: python -m clipper run e2e/vod.mp4 --out out/captions --clips 1 --streamer Tester --whisper-model tiny --language en --min-seconds 15 --max-seconds 30
       - run: python tests/e2e/check.py out/captions captions
@@ -43,9 +45,11 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - uses: ./.github/actions/setup
+        timeout-minutes: 15
         with:
           whisper-model: tiny
-      - run: sudo apt-get install -y -qq espeak-ng > /dev/null
+      - run: .github/actions/setup/apt.sh espeak-ng
+        timeout-minutes: 15
       - name: Serve a test video over HTTP (with and without Range support)
         run: |
           mkdir -p e2e && tests/e2e/make_vod.sh e2e/vod.mp4
@@ -77,6 +81,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - uses: ./.github/actions/setup
+        timeout-minutes: 15
       - env:
           TWITCH_URL: ${{ inputs.twitch_url }}
           PYTHONPATH: ${{ github.workspace }}

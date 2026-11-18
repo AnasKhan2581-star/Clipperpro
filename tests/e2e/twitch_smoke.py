@@ -13,7 +13,9 @@ url = sys.argv[1] if len(sys.argv) > 1 else None
 if not url:
     vids = [v for v in latest_videos("https://www.twitch.tv/twitch/videos?filter=archives", 5, settings) if v["url"]]
     if not vids:
-        print("no public VODs found to test with; skipping"); raise SystemExit(0)
+        print("::warning title=Twitch smoke test skipped::No public VOD found automatically. "
+              "Run this workflow manually and paste a Twitch VOD URL to test the Twitch path.")
+        raise SystemExit(0)
     url = vids[0]["url"]
 info = ingest.probe(url, settings)
 print(json.dumps({k: info[k] for k in ("id", "title", "uploader", "uploader_id", "channel_url", "duration", "extractor")}, indent=2))
