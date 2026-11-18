@@ -1,0 +1,19 @@
+services:
+  clipper:
+    build: .
+    image: gta6-clip-pipeline
+    ports:
+      - "8000:8000"   # web app
+      - "8090:8090"   # one-time YouTube OAuth callback (auth-youtube)
+    volumes:
+      - ./data:/app/data       # jobs, clips, YouTube token
+      - ./config:/app/config   # settings + streamer allowlist (editable from the UI)
+      - model-cache:/cache     # Whisper models
+    environment:
+      CLIPPER_PASSWORD: ${CLIPPER_PASSWORD:-}   # set to require a password (recommended if exposed)
+      CLIPPER_CONCURRENCY: ${CLIPPER_CONCURRENCY:-1}
+      WHISPER_THREADS: ${WHISPER_THREADS:-0}
+    restart: unless-stopped
+
+volumes:
+  model-cache:

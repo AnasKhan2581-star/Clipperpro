@@ -1,0 +1,100 @@
+# Default pipeline settings. Every value can be overridden per job
+# (web UI, CLI flags, or GitHub Actions inputs).
+
+clips:
+  count: 5              # how many clips to export per VOD
+  min_seconds: 20       # shortest clip
+  max_seconds: 58       # keep < 60s so YouTube treats it as a Short
+  target_seconds: 35    # preferred length before sentence snapping
+  pre_roll: 0.6         # fraction of the clip placed BEFORE the hype peak
+  min_gap_seconds: 90   # two clips never come from within this distance
+
+detection:
+  # Weights of each signal in the combined hype score (z-score space).
+  weights:
+    loudness: 1.0       # streamer yelling / explosions vs. the rolling baseline
+    loudness_rise: 0.6  # sudden jumps in volume
+    chat: 1.4           # chat messages per second (when a chat replay exists)
+    scene: 0.3          # visual cuts (only computed for local files)
+    keywords: 0.8       # hype words in the transcript (candidates only)
+  smoothing_seconds: 6
+  baseline_seconds: 300 # rolling window used as "normal" volume
+  candidate_multiplier: 3   # transcribe count*N candidates, keep the best `count`
+  scene_detection: false    # slower; decodes the video at 1 fps
+  keywords:
+    - no way
+    - oh my god
+    - what the
+    - let's go
+    - lets go
+    - clip that
+    - clip it
+    - bro
+    - insane
+    - holy
+    - run
+    - cops
+    - police
+    - five stars
+    - wanted
+    - chase
+    - crash
+    - heist
+    - robbed
+    - vice city
+    - leonida
+    - lucia
+    - jason
+    - gta six
+    - gta 6
+    - hello?
+    - are you serious
+    - i'm dead
+    - i'm crying
+
+render:
+  layout: blur          # blur | facecam | crop | landscape
+  # Facecam box in the SOURCE video, normalized 0..1 (x, y, width, height).
+  # Only used by the facecam layout. Default = typical bottom-left cam.
+  facecam_box: [0.0, 0.62, 0.28, 0.38]
+  facecam_height_ratio: 0.36  # share of the 9:16 frame used by the cam
+  crf: 20
+  preset: veryfast
+  max_height: 1080      # source quality requested from the platform
+  font: Anton           # falls back to any installed bold sans font
+  credit_overlay: true
+
+captions:
+  enabled: true
+  model: base           # tiny | base | small | medium (CPU friendly: tiny/base)
+  language: null        # null = auto detect
+  words_per_line: 3
+  uppercase: true
+  highlight_color: "&H0000E5FF"   # ASS BGR: neon yellow
+  text_color: "&H00FFFFFF"
+  font_size: 86
+  position: 0.70        # vertical position of captions (0 top .. 1 bottom)
+
+metadata:
+  title_template: "{streamer} {hook} 😱 #GTA6 #Shorts"
+  description_template: |
+    {hook}
+
+    🎥 Full stream: {source_url_t}
+    👤 Streamer: {streamer} — {channel_url}
+    All credit goes to {streamer}. Highlight clipped and edited for commentary/entertainment.
+    Watch and support the original creator at the links above.
+
+    #GTA6 #GTAVI #GTA6Gameplay #Shorts #{streamer_tag}
+  tags: [GTA 6, GTA VI, GTA 6 gameplay, GTA VI funny, Grand Theft Auto VI, shorts, gaming clips]
+
+youtube:
+  privacy: private      # private | unlisted | public
+  category_id: "20"     # 20 = Gaming
+  made_for_kids: false
+  daily_upload_cap: 6   # free API quota allows ~6 uploads/day
+  auto_upload: false
+
+download:
+  sections: true        # only download the highlight sections (huge bandwidth saver)
+  cookies_file: null    # path to cookies.txt (helps with YouTube bot checks)

@@ -1,0 +1,18 @@
+# Streamer allowlist + credit info.
+#
+# When `enforce: true`, the pipeline refuses to process a VOD unless its
+# channel matches one of the entries below. Only add streamers whose rules
+# allow clipping/reuploading (many state this in their channel "About" or
+# stream panels), or with whom you have an agreement. Keep a note of where
+# the permission comes from in `permission`.
+#
+# `match` entries are compared case-insensitively against the VOD's
+# uploader name, uploader id, channel id and channel URL.
+
+enforce: true
+
+streamers: []
+# - name: ExampleStreamer
+#   match: [examplestreamer, "twitch.tv/examplestreamer"]
+#   credit_url: https://twitch.tv/examplestreamer
+#   permission: "Clip policy on stream panel, checked 2026-11-18"

@@ -1,0 +1,17 @@
+# Channels the scheduled "watch" job checks for new GTA VI VODs.
+# Every channel here must ALSO be in streamers.yaml (allowlist) or it is skipped.
+#
+# url: a channel's videos page, e.g.
+#   https://www.twitch.tv/<name>/videos?filter=archives
+#   https://www.youtube.com/@<handle>/streams
+# title_keywords: a VOD is processed only if its title contains one of these.
+
+max_new_vods_per_run: 2
+lookback: 5          # how many latest videos to inspect per channel
+title_keywords: [gta 6, gta vi, gta6, gtavi, grand theft auto vi, vice city]
+
+channels: []
+# - url: https://www.twitch.tv/examplestreamer/videos?filter=archives
+#   clips: 5
+#   layout: facecam
+#   facecam_box: [0.0, 0.62, 0.28, 0.38]

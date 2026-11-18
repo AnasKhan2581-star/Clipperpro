@@ -1,0 +1,8 @@
+.venv
+.git
+data
+out
+state
+tests
+**/__pycache__
+cookies.txt

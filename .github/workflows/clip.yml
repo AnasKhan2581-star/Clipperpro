@@ -1,0 +1,119 @@
+name: Clip a VOD
+
+# Run from the Actions tab → "Clip a VOD" → Run workflow.
+# Free and unlimited on public repos (each run may take up to 6 hours).
+on:
+  workflow_dispatch:
+    inputs:
+      url:
+        description: VOD URL (Twitch / YouTube / Kick)
+        required: true
+      clips:
+        description: Number of clips
+        default: "5"
+      layout:
+        description: Vertical layout
+        type: choice
+        options: [blur, facecam, crop, landscape]
+        default: blur
+      facecam_box:
+        description: "Facecam box x,y,w,h (0-1), for facecam layout"
+        default: "0,0.62,0.28,0.38"
+      captions:
+        description: Burn in AI captions
+        type: boolean
+        default: true
+      whisper_model:
+        description: Whisper model
+        type: choice
+        options: [tiny, base, small]
+        default: base
+      upload:
+        description: Upload clips to YouTube (needs YT_* secrets)
+        type: boolean
+        default: false
+      privacy:
+        description: YouTube privacy
+        type: choice
+        options: [private, unlisted, public]
+        default: private
+
+permissions:
+  contents: read
+
+concurrency:
+  group: clip-${{ github.ref }}-${{ inputs.url }}
+  cancel-in-progress: false
+
+jobs:
+  clip:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    env:
+      # inputs go through env vars (never inlined into scripts) to prevent shell injection
+      IN_URL: ${{ inputs.url }}
+      IN_CLIPS: ${{ inputs.clips }}
+      IN_LAYOUT: ${{ inputs.layout }}
+      IN_BOX: ${{ inputs.facecam_box }}
+      IN_CAPTIONS: ${{ inputs.captions }}
+      IN_MODEL: ${{ inputs.whisper_model }}
+      IN_PRIVACY: ${{ inputs.privacy }}
+      IN_UPLOAD: ${{ inputs.upload }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+        with:
+          whisper-model: ${{ inputs.whisper_model }}
+
+      - name: Write yt-dlp cookies (optional)
+        env:
+          YTDLP_COOKIES: ${{ secrets.YTDLP_COOKIES }}
+        run: |
+          if [ -n "$YTDLP_COOKIES" ]; then
+            printf '%s\n' "$YTDLP_COOKIES" > "$RUNNER_TEMP/cookies.txt"
+            echo "YTDLP_COOKIES_FILE=$RUNNER_TEMP/cookies.txt" >> "$GITHUB_ENV"
+          fi
+
+      - name: Run pipeline
+        run: |
+          args=(run "$IN_URL" --out out/run --clips "$IN_CLIPS" --layout "$IN_LAYOUT" \
+                --facecam-box "$IN_BOX" --whisper-model "$IN_MODEL" --privacy "$IN_PRIVACY")
+          [ "$IN_CAPTIONS" = "true" ] || args+=(--no-captions)
+          python -m clipper "${args[@]}"
+
+      - name: Summary
+        if: always()
+        run: |
+          python - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import json, pathlib
+          p = pathlib.Path("out/run/manifest.json")
+          if not p.exists():
+              print("### ❌ No clips produced — see the 'Run pipeline' log"); raise SystemExit
+          m = json.loads(p.read_text())
+          print(f"### 🎬 {len(m['clips'])} clips from “{m['info'].get('title')}”\n")
+          print("| Clip | Start | Length | Score | Title |\n|---|---|---|---|---|")
+          for c in m["clips"]:
+              print(f"| {c['name']} | {int(c['start'])//60}:{int(c['start'])%60:02d} | {c['duration']:.0f}s | {c['score']:.1f} | {c['title']} |")
+          print("\nDownload them from the **clips** artifact below.")
+          PY
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: clips
+          path: |
+            out/run/clips/*.mp4
+            out/run/clips/*.json
+            out/run/clips/*.jpg
+            out/run/manifest.json
+          retention-days: 14
+          if-no-files-found: warn
+
+      - name: Upload to YouTube
+        if: inputs.upload
+        env:
+          YT_CLIENT_SECRET_JSON: ${{ secrets.YT_CLIENT_SECRET_JSON }}
+          YT_TOKEN_JSON: ${{ secrets.YT_TOKEN_JSON }}
+        run: |
+          if [ -z "$YT_TOKEN_JSON" ]; then echo "::error::Add the YT_CLIENT_SECRET_JSON and YT_TOKEN_JSON secrets first (see README)"; exit 1; fi
+          python -m clipper upload out/run

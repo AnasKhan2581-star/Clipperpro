@@ -1,0 +1,9 @@
+fastapi>=0.110
+uvicorn[standard]>=0.29
+python-multipart>=0.0.9
+yt-dlp>=2025.1.1
+numpy>=1.26
+PyYAML>=6.0
+faster-whisper>=1.0.3
+google-api-python-client>=2.120
+google-auth-oauthlib>=1.2

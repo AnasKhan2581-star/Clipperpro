@@ -1,0 +1,75 @@
+name: Watch channels
+
+# Checks the channels in config/watchlist.yaml for new GTA VI VODs every 3 hours,
+# clips them, and (optionally) uploads to YouTube. Processed VOD ids are committed
+# to state/processed.json so nothing is clipped twice.
+on:
+  schedule:
+    - cron: "17 */3 * * *"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Only list new VODs, don't process
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: watch
+  cancel-in-progress: false
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    steps:
+      - uses: actions/checkout@v4
+      - name: Skip when the watch list is empty
+        id: check
+        run: |
+          if grep -qE '^\s*-\s*url:' config/watchlist.yaml; then echo "run=true" >> "$GITHUB_OUTPUT";
+          else echo "No channels in config/watchlist.yaml — nothing to do."; fi
+      - uses: ./.github/actions/setup
+        if: steps.check.outputs.run == 'true'
+      - name: Write yt-dlp cookies (optional)
+        if: steps.check.outputs.run == 'true'
+        env:
+          YTDLP_COOKIES: ${{ secrets.YTDLP_COOKIES }}
+        run: |
+          if [ -n "$YTDLP_COOKIES" ]; then
+            printf '%s\n' "$YTDLP_COOKIES" > "$RUNNER_TEMP/cookies.txt"
+            echo "YTDLP_COOKIES_FILE=$RUNNER_TEMP/cookies.txt" >> "$GITHUB_ENV"
+          fi
+      - name: Process new VODs
+        if: steps.check.outputs.run == 'true'
+        env:
+          DRY_RUN: ${{ inputs.dry_run }}
+          AUTO_UPLOAD: ${{ vars.AUTO_UPLOAD }}
+          YT_CLIENT_SECRET_JSON: ${{ secrets.YT_CLIENT_SECRET_JSON }}
+          YT_TOKEN_JSON: ${{ secrets.YT_TOKEN_JSON }}
+        run: |
+          args=(watch --state state/processed.json --out out)
+          [ "$DRY_RUN" = "true" ] && args+=(--dry-run)
+          [ "$AUTO_UPLOAD" = "true" ] && [ -n "$YT_TOKEN_JSON" ] && args+=(--upload)
+          python -m clipper "${args[@]}"
+      - uses: actions/upload-artifact@v4
+        if: steps.check.outputs.run == 'true'
+        with:
+          name: watched-clips
+          path: |
+            out/*/clips/*.mp4
+            out/*/clips/*.json
+            out/*/manifest.json
+          retention-days: 14
+          if-no-files-found: ignore
+      - name: Save processed state
+        if: steps.check.outputs.run == 'true' && inputs.dry_run != true
+        run: |
+          git config user.name "clip-bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add state/processed.json 2>/dev/null || exit 0
+          git diff --cached --quiet && exit 0
+          git commit -m "watch: update processed VODs [skip ci]"
+          git push
