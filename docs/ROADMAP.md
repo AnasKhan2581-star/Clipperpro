@@ -5,6 +5,17 @@ Each phase has a **goal**, **steps**, and a **"done when"** check so you know wh
 
 ---
 
+## Verified so far
+
+| Part | How it was checked | Result |
+|---|---|---|
+| Highlight detection + rendering (all layouts) | unit tests + full renders | ✅ |
+| AI captions (real Whisper model on real speech) | E2E on GitHub | ✅ heard *"The cops are chasing us. 5 stars. Run, run, let's go"* and picked that moment |
+| URL downloads: section-only + full fallback | E2E on GitHub | ✅ section clips are frame-identical to full-file clips |
+| Twitch | E2E on a real Twitch VOD (9.3 h) | ✅ metadata, credit link, 1080p section download |
+| YouTube **source** downloads | not testable from GitHub servers (bot check) | ⚠️ use the Docker app at home, or cookies |
+| YouTube **upload** | needs your Google login | ⏳ you test it in Phase 0, step 7 |
+
 ## Phase 0: First real clips (days 1–3)
 
 **Goal:** prove the pipeline on real GTA VI streams and tune it for your streamers.
@@ -18,6 +29,7 @@ Each phase has a **goal**, **steps**, and a **"done when"** check so you know wh
    - how many of the 5 clips were actually good (your hit rate)
 5. If clips start too late or end too early, adjust `clips.pre_roll` in `config/settings.yaml`: higher means more lead-up.
 6. If good moments are missed, raise `detection.candidate_multiplier` from 3 to 5, so it checks more candidates.
+7. Set up YouTube upload ([GETTING_STARTED](GETTING_STARTED.md#youtube-auto-upload-one-time-setup)) and upload **one** clip as *private* to confirm it works end to end.
 
 **Done when:** at least 3 of every 5 clips are worth posting.
 

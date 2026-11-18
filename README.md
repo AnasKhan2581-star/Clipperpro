@@ -1,5 +1,8 @@
 # 🎬 GTA VI Clip Pipeline
 
+[![CI](https://github.com/AnasKhan2581-star/Clipperpro/actions/workflows/ci.yml/badge.svg)](https://github.com/AnasKhan2581-star/Clipperpro/actions/workflows/ci.yml)
+[![E2E](https://github.com/AnasKhan2581-star/Clipperpro/actions/workflows/e2e.yml/badge.svg)](https://github.com/AnasKhan2581-star/Clipperpro/actions/workflows/e2e.yml)
+
 **Turn 8-hour GTA VI streams into captioned, vertical YouTube Shorts automatically, free and with no usage limits.**
 
 Paste a Twitch, YouTube or Kick VOD link and the pipeline does the rest:
@@ -191,6 +194,15 @@ Rendering is CPU-heavy, so serverless free tiers (Vercel, Netlify and similar) c
 pip install -r requirements-dev.txt
 python -m pytest -q
 ```
+
+Testing runs at two levels:
+
+| Suite | Runs | What it proves |
+|---|---|---|
+| **CI** (`pytest`, 21 tests + Docker build) | every push | scoring, captions, metadata, allowlist, API, full render, URL fallback, Whisper input format |
+| **E2E** (`.github/workflows/e2e.yml`) | pushes touching code; manual | real Whisper model transcribing real speech; URL section downloads plus the full-download fallback; a real Twitch VOD (metadata, credit link, 1080p section download) |
+
+Run E2E manually with your own Twitch VOD: Actions → **E2E** → Run workflow → paste a URL in *twitch_url*.
 
 Project layout:
 
