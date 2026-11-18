@@ -1,7 +1,7 @@
 name: E2E
 
 # Real-world checks that unit tests can't do: Whisper captions on real speech,
-# real URL downloads, and the Twitch download path.
+# URL downloads (section + full fallback), and the Twitch download path.
 on:
   push:
     branches: [main]
@@ -21,19 +21,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: ./.github/actions/setup
         with:
           whisper-model: tiny
       - run: sudo apt-get install -y -qq espeak-ng > /dev/null
-      - name: Build a fake 2-minute stream with a loud spoken hype moment at 1:00
-        run: |
-          mkdir -p e2e
-          espeak-ng -s 140 -a 200 -w e2e/speech.wav "No way bro! The cops are chasing us. Five stars! Run, run! Let's go, clip that!"
-          ffmpeg -v error -y -f lavfi -i testsrc2=size=1280x720:rate=30:duration=120 \
-            -f lavfi -i "anoisesrc=d=120:c=pink:a=0.015" -i e2e/speech.wav \
-            -filter_complex "[2:a]adelay=60000|60000,volume=3[s];[1:a][s]amix=inputs=2:normalize=0:duration=first[a]" \
-            -map 0:v -map "[a]" -c:v libx264 -preset ultrafast -c:a aac e2e/vod.mp4
+      - run: mkdir -p e2e && tests/e2e/make_vod.sh e2e/vod.mp4
       - run: python -m clipper run e2e/vod.mp4 --out out/captions --clips 1 --streamer Tester --whisper-model tiny --language en --min-seconds 15 --max-seconds 30
       - run: python tests/e2e/check.py out/captions captions
       - uses: actions/upload-artifact@v4
@@ -44,27 +37,36 @@ jobs:
           retention-days: 7
 
   download:
-    name: Real URL download (open-license video)
+    name: URL download (sections + fallback)
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: ./.github/actions/setup
         with:
           whisper-model: tiny
-      - name: Allowlist off for this public test video
+      - run: sudo apt-get install -y -qq espeak-ng > /dev/null
+      - name: Serve a test video over HTTP (with and without Range support)
         run: |
+          mkdir -p e2e && tests/e2e/make_vod.sh e2e/vod.mp4
+          nohup python tests/e2e/serve.py e2e 8812 > /dev/null 2>&1 &
+          (cd e2e && nohup python -m http.server 8811 --bind 127.0.0.1 > /dev/null 2>&1 &)
+          sleep 2
+          curl -fsS -r 0-99 -o /dev/null -w "range server: %{http_code}\n" http://127.0.0.1:8812/vod.mp4
           mkdir -p "$RUNNER_TEMP/cfg" && cp config/*.yaml "$RUNNER_TEMP/cfg/"
           sed -i 's/^enforce: true/enforce: false/' "$RUNNER_TEMP/cfg/streamers.yaml"
           echo "CLIPPER_CONFIG_DIR=$RUNNER_TEMP/cfg" >> "$GITHUB_ENV"
-      # Big Buck Bunny (c) Blender Foundation, CC-BY 3.0
-      - run: python -m clipper run "https://download.blender.org/peach/bigbuckbunny_movies/BigBuckBunny_320x180.mp4" --out out/download --clips 2 --streamer "Blender Foundation" --whisper-model tiny --min-seconds 15 --max-seconds 25
-      - run: python tests/e2e/check.py out/download download
+      - name: Section downloads + captions
+        run: python -m clipper run http://127.0.0.1:8812/vod.mp4 --out out/sections --clips 1 --streamer Tester --whisper-model tiny --language en --min-seconds 15 --max-seconds 30
+      - run: python tests/e2e/check.py out/sections download && python tests/e2e/check.py out/sections captions
+      - name: Host without seeking -> full-download fallback
+        run: python -m clipper run http://127.0.0.1:8811/vod.mp4 --out out/fallback --clips 2 --streamer Tester --no-captions --min-seconds 15 --max-seconds 25
+      - run: python tests/e2e/check.py out/fallback download
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: e2e-download
-          path: out/download/clips/
+          path: out/sections/clips/
           retention-days: 7
 
   twitch:
@@ -73,8 +75,9 @@ jobs:
     timeout-minutes: 20
     continue-on-error: true   # depends on a live third-party site
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: ./.github/actions/setup
       - env:
           TWITCH_URL: ${{ inputs.twitch_url }}
+          PYTHONPATH: ${{ github.workspace }}
         run: python tests/e2e/twitch_smoke.py $TWITCH_URL

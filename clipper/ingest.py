@@ -69,6 +69,12 @@ def probe(source: str, settings: dict) -> dict:
     if info.get("is_live"):
         raise IngestError("Stream is still live. Run the pipeline once the VOD is available.")
     extractor = (info.get("extractor_key") or info.get("extractor") or "").lower()
+    duration = float(info.get("duration") or 0)
+    if not duration:  # direct file links: yt-dlp doesn't know the length, ffprobe does
+        try:
+            duration = ffprobe_duration(info.get("url") or source)
+        except IngestError:
+            duration = 0.0
     channel_url = info.get("channel_url") or info.get("uploader_url")
     if not channel_url and "twitch" in extractor and info.get("uploader_id"):
         channel_url = f"https://www.twitch.tv/{info['uploader_id']}"
@@ -82,7 +88,7 @@ def probe(source: str, settings: dict) -> dict:
         "channel_url": channel_url,
         "uploader_url": info.get("uploader_url"),
         "webpage_url": info.get("webpage_url") or source,
-        "duration": float(info.get("duration") or 0),
+        "duration": duration,
         "extractor": extractor,
         "is_local": False,
         "has_live_chat": bool((info.get("subtitles") or {}).get("live_chat")),
@@ -105,7 +111,7 @@ def _friendly_ytdlp_error(exc: Exception) -> str:
     return f"Could not read the video: {first[:300]}"
 
 
-def ffprobe_duration(path: Path) -> float:
+def ffprobe_duration(path: Path | str) -> float:
     out = subprocess.run(
         ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "json", str(path)],
         capture_output=True, text=True, check=False,
@@ -113,7 +119,7 @@ def ffprobe_duration(path: Path) -> float:
     try:
         return float(json.loads(out.stdout)["format"]["duration"])
     except Exception as exc:
-        raise IngestError(f"Could not read media file: {path.name}") from exc
+        raise IngestError(f"Could not read media file: {Path(str(path)).name}") from exc
 
 
 def ffprobe_video(path: Path) -> dict:

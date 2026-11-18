@@ -7,7 +7,7 @@ inputs:
 runs:
   using: composite
   steps:
-    - uses: actions/setup-python@v5
+    - uses: actions/setup-python@v6
       with:
         python-version: "3.12"
         cache: pip
@@ -18,7 +18,7 @@ runs:
         sudo apt-get update -qq
         sudo apt-get install -y -qq ffmpeg fonts-dejavu-core > /dev/null
         mkdir -p ~/.fonts
-        curl -fsSL -o ~/.fonts/Anton-Regular.ttf https://github.com/google/fonts/raw/main/ofl/anton/Anton-Regular.ttf || true
+        curl -fsSL --max-time 30 --retry 2 -o ~/.fonts/Anton-Regular.ttf https://github.com/google/fonts/raw/main/ofl/anton/Anton-Regular.ttf || true
         fc-cache -f > /dev/null
     - name: Install Python dependencies
       shell: bash

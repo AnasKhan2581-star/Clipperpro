@@ -147,12 +147,17 @@ def run(source: str, outdir: Path, overrides: dict | None = None, reporter: Repo
     for i, c in enumerate(chosen, start=1):
         base = 0.70 + 0.28 * (i - 1) / len(chosen)
         name = f"clip_{i:02d}"
+        if local_video is None:
+            rep("render", base, f"Downloading section {i}/{len(chosen)} ({_fmt(c.start)}–{_fmt(c.end)})…")
+            try:
+                src = ingest.download_section(source, c.start, c.end, work / f"{name}_src.mp4", settings)
+                offset = 0.0
+            except ingest.IngestError as exc:
+                # some hosts don't support seeking; fall back to one full download, cut locally
+                rep("render", base, f"Section download failed ({exc}); downloading the full video once instead…")
+                local_video = ingest.download_full(source, work, settings)
         if local_video is not None:
             src, offset = local_video, c.start
-        else:
-            rep("render", base, f"Downloading section {i}/{len(chosen)} ({_fmt(c.start)}–{_fmt(c.end)})…")
-            src = ingest.download_section(source, c.start, c.end, work / f"{name}_src.mp4", settings)
-            offset = 0.0
         ass_path = None
         credit = metadata.credit_label(entry.get("name", ""), entry.get("credit_url")) if rcfg.get("credit_overlay", True) else None
         if (cap_cfg.get("enabled", True) and c.words) or credit:
@@ -177,7 +182,7 @@ def run(source: str, outdir: Path, overrides: dict | None = None, reporter: Repo
         }
         (clips_dir / f"{name}.json").write_text(json.dumps(clip, indent=2, ensure_ascii=False))
         results.append(clip)
-        if local_video is None:
+        if src is not local_video:
             src.unlink(missing_ok=True)
 
     manifest = {

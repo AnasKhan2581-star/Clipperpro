@@ -11,7 +11,7 @@ RUN apt-get update \
 
 # Bold "Shorts-style" caption font (SIL Open Font License)
 RUN mkdir -p /usr/share/fonts/truetype/anton \
- && curl -fsSL -o /usr/share/fonts/truetype/anton/Anton-Regular.ttf \
+ && curl -fsSL --max-time 60 --retry 2 -o /usr/share/fonts/truetype/anton/Anton-Regular.ttf \
       https://github.com/google/fonts/raw/main/ofl/anton/Anton-Regular.ttf \
  || echo "Anton font download failed; captions fall back to DejaVu Sans Bold" \
  ; fc-cache -f
