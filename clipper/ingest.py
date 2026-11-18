@@ -68,6 +68,10 @@ def probe(source: str, settings: dict) -> dict:
         raise IngestError("That URL is a playlist/channel. Paste a single VOD/video URL (or use the watch list).")
     if info.get("is_live"):
         raise IngestError("Stream is still live. Run the pipeline once the VOD is available.")
+    extractor = (info.get("extractor_key") or info.get("extractor") or "").lower()
+    channel_url = info.get("channel_url") or info.get("uploader_url")
+    if not channel_url and "twitch" in extractor and info.get("uploader_id"):
+        channel_url = f"https://www.twitch.tv/{info['uploader_id']}"
     return {
         "id": info.get("id"),
         "title": info.get("title"),
@@ -75,11 +79,11 @@ def probe(source: str, settings: dict) -> dict:
         "uploader_id": info.get("uploader_id"),
         "channel": info.get("channel"),
         "channel_id": info.get("channel_id"),
-        "channel_url": info.get("channel_url") or info.get("uploader_url"),
+        "channel_url": channel_url,
         "uploader_url": info.get("uploader_url"),
         "webpage_url": info.get("webpage_url") or source,
         "duration": float(info.get("duration") or 0),
-        "extractor": (info.get("extractor_key") or info.get("extractor") or "").lower(),
+        "extractor": extractor,
         "is_local": False,
         "has_live_chat": bool((info.get("subtitles") or {}).get("live_chat")),
         "thumbnail": info.get("thumbnail"),
@@ -165,7 +169,7 @@ def download_section(source: str, start: float, end: float, out_path: Path, sett
     max_h = int((settings.get("render") or {}).get("max_height", 1080))
     stem = out_path.with_suffix("")
     opts = _ydl_opts(settings, {
-        "format": f"bv*[height<={max_h}]+ba/b[height<={max_h}]/bv*+ba/b",
+        "format": _video_format(max_h),
         "merge_output_format": "mp4",
         "outtmpl": str(stem) + ".%(ext)s",
         "download_ranges": download_range_func(None, [(max(0.0, start), end)]),
@@ -184,12 +188,17 @@ def download_section(source: str, start: float, end: float, out_path: Path, sett
     return out_path
 
 
+def _video_format(max_h: int) -> str:
+    # video-only + audio (YouTube) -> else best muxed stream (Twitch/Kick) -> else anything
+    return f"bv[height<={max_h}]+ba/b[height<={max_h}]/bv*+ba/b"
+
+
 def download_full(source: str, workdir: Path, settings: dict) -> Path:
     import yt_dlp
 
     max_h = int((settings.get("render") or {}).get("max_height", 1080))
     opts = _ydl_opts(settings, {
-        "format": f"bv*[height<={max_h}]+ba/b[height<={max_h}]/bv*+ba/b",
+        "format": _video_format(max_h),
         "merge_output_format": "mp4",
         "outtmpl": str(workdir / "source.%(ext)s"),
     })

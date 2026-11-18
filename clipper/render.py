@@ -65,7 +65,7 @@ def render_clip(src: Path, offset: float, duration: float, out: Path, render_cfg
         "-filter_complex", graph, "-map", "[v]", "-map", "0:a:0?",
         "-af", "loudnorm=I=-14:TP=-1.5:LRA=11,aresample=48000",
         "-c:v", "libx264", "-preset", str(render_cfg.get("preset", "veryfast")),
-        "-crf", str(render_cfg.get("crf", 20)), "-profile:v", "high", "-r", "30",
+        "-crf", str(render_cfg.get("crf", 20)), "-profile:v", "high", "-r", str(int(render_cfg.get("fps", 30))),
         "-c:a", "aac", "-b:a", "160k", "-movflags", "+faststart",
         out.name,
     ]

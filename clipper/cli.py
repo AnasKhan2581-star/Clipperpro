@@ -14,7 +14,7 @@ def _overrides(a: argparse.Namespace) -> dict:
     box = [float(x) for x in a.facecam_box.split(",")] if getattr(a, "facecam_box", None) else None
     return {
         "clips": {"count": a.clips, "min_seconds": a.min_seconds, "max_seconds": a.max_seconds},
-        "render": {"layout": a.layout, "facecam_box": box,
+        "render": {"layout": a.layout, "facecam_box": box, "fps": a.fps,
                    "credit_overlay": False if a.no_credit else None},
         "captions": {"enabled": False if a.no_captions else None, "model": a.whisper_model,
                      "language": a.language},
@@ -48,10 +48,15 @@ def _upload_dir(out: Path, manifest: dict) -> None:
     from .config import load_settings
 
     settings = load_settings()
+    yt_cfg = {**settings["youtube"], **((manifest.get("settings") or {}).get("youtube") or {})}
     cap = int(settings["youtube"].get("daily_upload_cap", 6))
     for c in manifest["clips"][:cap]:
+        # clip json holds any edits made after rendering
+        clip_json = out / "clips" / f"{c['name']}.json"
+        if clip_json.exists():
+            c = json.loads(clip_json.read_text())
         res = youtube.upload(out / c["file"], c["title"], c["description"], c.get("tags", []),
-                             settings["youtube"], out / c["thumbnail"] if c.get("thumbnail") else None)
+                             yt_cfg, out / c["thumbnail"] if c.get("thumbnail") else None)
         print(f"  ↑ uploaded {c['name']}: {res['url']}")
 
 
@@ -104,6 +109,7 @@ def main(argv: list[str] | None = None) -> int:
     r.add_argument("--max-seconds", type=float)
     r.add_argument("--layout", choices=["blur", "facecam", "crop", "landscape"])
     r.add_argument("--facecam-box", help="x,y,w,h normalized, e.g. 0,0.62,0.28,0.38")
+    r.add_argument("--fps", type=int, choices=[30, 60])
     r.add_argument("--no-captions", action="store_true")
     r.add_argument("--no-credit", action="store_true", help="hide the on-video credit line")
     r.add_argument("--whisper-model", choices=["tiny", "base", "small", "medium"])

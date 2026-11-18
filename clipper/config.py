@@ -47,6 +47,7 @@ def validate(s: dict) -> dict:
     c["pre_roll"] = min(max(float(c.get("pre_roll", 0.6)), 0.05), 0.95)
     c["min_gap_seconds"] = max(0.0, float(c.get("min_gap_seconds", 90)))
     r = s.setdefault("render", {})
+    r["fps"] = 60 if int(r.get("fps") or 30) >= 60 else 30
     if r.get("layout") not in LAYOUTS:
         r["layout"] = "blur"
     box = r.get("facecam_box") or [0.0, 0.62, 0.28, 0.38]

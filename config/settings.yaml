@@ -59,6 +59,7 @@ render:
   facecam_box: [0.0, 0.62, 0.28, 0.38]
   facecam_height_ratio: 0.36  # share of the 9:16 frame used by the cam
   crf: 20
+  fps: 30               # 30 = smaller/faster, 60 = smoother GTA driving (2x encode time)
   preset: veryfast
   max_height: 1080      # source quality requested from the platform
   font: Anton           # falls back to any installed bold sans font

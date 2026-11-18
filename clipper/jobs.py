@@ -174,6 +174,9 @@ class Worker:
         except pipeline.Cancelled:
             self.store.update(job_id, status="cancelled", message="Cancelled", logs=json.dumps(logs[-200:]))
         except Exception as exc:
+            if cancelled():  # cancel raised inside a yt-dlp hook arrives wrapped
+                self.store.update(job_id, status="cancelled", message="Cancelled", logs=json.dumps(logs[-200:]))
+                return
             log.error("job %s failed: %s", job_id, traceback.format_exc())
             self.store.update(job_id, status="failed", error=str(exc)[:2000], message="Failed",
                               logs=json.dumps((logs + [f"ERROR: {exc}"])[-200:]))
@@ -197,10 +200,13 @@ class Worker:
                 if self.store.uploads_last_24h() >= cap:
                     raise youtube.YouTubeError(f"Daily upload cap reached ({cap}/24h). Raise youtube.daily_upload_cap if your quota allows.")
                 self.store.set_upload(upload_id, status="uploading")
-                clip = read_clip(self.job_dir(job_id), clip_name)
                 d = self.job_dir(job_id)
+                clip = read_clip(d, clip_name)
+                manifest = read_manifest(d) or {}
+                # the job's own choices (privacy etc.) win over today's defaults
+                yt_cfg = {**settings["youtube"], **((manifest.get("settings") or {}).get("youtube") or {})}
                 res = youtube.upload(d / clip["file"], clip["title"], clip["description"], clip.get("tags", []),
-                                     settings["youtube"], d / clip["thumbnail"] if clip.get("thumbnail") else None)
+                                     yt_cfg, d / clip["thumbnail"] if clip.get("thumbnail") else None)
                 self.store.set_upload(upload_id, status="done", video_id=res["video_id"], url=res["url"])
             except Exception as exc:
                 self.store.set_upload(upload_id, status="failed", error=str(exc)[:1000])

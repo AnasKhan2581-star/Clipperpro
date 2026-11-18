@@ -24,7 +24,7 @@ async function loadConfig() {
   $("#count").value = d.count; $("#min_seconds").value = d.min_seconds; $("#max_seconds").value = d.max_seconds;
   $("#captions").checked = d.captions; $("#credit_overlay").checked = d.credit_overlay;
   $("#scene_detection").checked = d.scene_detection; $("#auto_upload").checked = d.auto_upload;
-  $("#privacy").value = d.privacy;
+  $("#privacy").value = d.privacy; $("#fps").value = String(d.fps);
   $("#whisper_model").innerHTML = c.whisper_models.map((m) => `<option value="${m}">${m}</option>`).join("");
   $("#whisper_model").value = d.whisper_model;
   const radio = $(`input[name=layout][value=${d.layout}]`); if (radio) radio.checked = true;
@@ -80,7 +80,7 @@ function options() {
   return {
     count: num("#count"), min_seconds: num("#min_seconds"), max_seconds: num("#max_seconds"),
     layout: ($("input[name=layout]:checked") || {}).value || null,
-    facecam_box: state.box, captions: $("#captions").checked, whisper_model: $("#whisper_model").value,
+    facecam_box: state.box, fps: parseInt($("#fps").value, 10), captions: $("#captions").checked, whisper_model: $("#whisper_model").value,
     credit_overlay: $("#credit_overlay").checked, scene_detection: $("#scene_detection").checked,
     streamer: $("#streamer").value.trim() || null, auto_upload: $("#auto_upload").checked, privacy: $("#privacy").value,
   };

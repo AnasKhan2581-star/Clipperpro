@@ -46,3 +46,18 @@ def test_match_streamer():
     assert match_streamer({"channel_url": "https://www.youtube.com/@SomeBodyLive"}, allow)
     assert match_streamer({"webpage_url": "https://www.twitch.tv/somebody/videos?filter=archives"}, allow)
     assert match_streamer({"uploader": "somebodyelse"}, allow) is None
+
+
+def test_cli_upload_uses_job_privacy(tmp_path, monkeypatch):
+    import json as _json
+
+    from clipper import cli, youtube
+
+    (tmp_path / "clips").mkdir()
+    clip = {"name": "clip_01", "file": "clips/clip_01.mp4", "thumbnail": None, "title": "Old", "description": "d", "tags": []}
+    (tmp_path / "clips" / "clip_01.json").write_text(_json.dumps({**clip, "title": "Edited"}))
+    manifest = {"clips": [clip], "settings": {"youtube": {"privacy": "public"}}}
+    seen = {}
+    monkeypatch.setattr(youtube, "upload", lambda video, title, desc, tags, cfg, thumb=None: seen.update(title=title, privacy=cfg["privacy"]) or {"url": "u"})
+    cli._upload_dir(tmp_path, manifest)
+    assert seen == {"title": "Edited", "privacy": "public"}

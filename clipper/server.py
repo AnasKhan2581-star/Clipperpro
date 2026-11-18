@@ -11,6 +11,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, Response
+from fastapi.concurrency import run_in_threadpool
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -58,6 +59,7 @@ class JobOptions(BaseModel):
     target_seconds: float | None = Field(None, ge=5, le=180)
     layout: str | None = None
     facecam_box: list[float] | None = None
+    fps: int | None = Field(None, ge=24, le=60)
     captions: bool | None = None
     whisper_model: str | None = None
     language: str | None = None
@@ -98,7 +100,8 @@ def _overrides(o: JobOptions) -> dict:
     return {
         "clips": {"count": o.count, "min_seconds": o.min_seconds, "max_seconds": o.max_seconds,
                   "target_seconds": o.target_seconds},
-        "render": {"layout": o.layout, "facecam_box": o.facecam_box, "credit_overlay": o.credit_overlay},
+        "render": {"layout": o.layout, "facecam_box": o.facecam_box, "credit_overlay": o.credit_overlay,
+                   "fps": o.fps},
         "captions": {"enabled": o.captions, "model": o.whisper_model, "language": o.language or None},
         "detection": {"scene_detection": o.scene_detection},
         "youtube": {"privacy": o.privacy},
@@ -127,6 +130,7 @@ def config():
             "count": s["clips"]["count"], "min_seconds": s["clips"]["min_seconds"],
             "max_seconds": s["clips"]["max_seconds"], "target_seconds": s["clips"]["target_seconds"],
             "layout": s["render"]["layout"], "facecam_box": s["render"]["facecam_box"],
+            "fps": s["render"]["fps"],
             "captions": s["captions"]["enabled"], "whisper_model": s["captions"]["model"],
             "scene_detection": s["detection"].get("scene_detection", False),
             "credit_overlay": s["render"].get("credit_overlay", True),
@@ -158,8 +162,11 @@ async def create_job_upload(file: UploadFile = File(...), options: str = Form("{
         raise HTTPException(400, f"Unsupported file type {ext or '(none)'}; use {sorted(VIDEO_EXTS)}")
     UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
     dest = UPLOAD_DIR / f"{uuid.uuid4().hex}{ext}"
-    with dest.open("wb") as fh:
-        shutil.copyfileobj(file.file, fh, length=8 * 1024 * 1024)
+    def _save() -> None:
+        with dest.open("wb") as fh:
+            shutil.copyfileobj(file.file, fh, length=8 * 1024 * 1024)
+
+    await run_in_threadpool(_save)
     opts = {"overrides": _overrides(o), "streamer": o.streamer, "auto_upload": o.auto_upload,
             "delete_upload_after": True, "filename": file.filename}
     return {"id": worker.submit(str(dest), opts)}
