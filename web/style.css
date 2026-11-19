@@ -131,6 +131,14 @@ form > label, .grid2 { margin-top: 14px; }
 .badge.done { color: var(--teal); background: rgba(46, 230, 197, .12); }
 .badge.failed { color: var(--red); background: rgba(255, 90, 106, .12); }
 .badge.score { color: var(--orange); background: rgba(255, 179, 71, .12); text-transform: none; }
+.badge.live { color: #fff; background: var(--red); animation: pulse 1.6s ease-in-out infinite; }
+@keyframes pulse { 50% { opacity: .55; } }
+@media (prefers-reduced-motion: reduce) { .badge.live { animation: none; } }
+.live-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-top: 10px; }
+.live-row input[type=number] { width: 72px; margin: 0; padding: 6px 8px; }
+.bar.live { width: 100% !important; opacity: .5; }
+.live-chunks { margin-top: 14px; }
+.live-chunks h3 { margin: 0 0 8px; }
 .empty { color: var(--muted); text-align: center; padding: 30px 0 10px; margin: 0; }
 
 .progress { height: 8px; border-radius: 8px; background: var(--bg); overflow: hidden; margin-top: 16px; border: 1px solid var(--line); }

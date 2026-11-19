@@ -19,7 +19,8 @@ from . import __version__, youtube
 from .config import (DATA_DIR, LAYOUTS, ROOT, WHISPER_MODELS, load_settings, load_streamers,
                      save_streamers)
 from .ingest import VIDEO_EXTS, is_url
-from .jobs import Store, Worker, read_clip, read_manifest, remove_job_files, write_clip
+from .live import live_config
+from .jobs import LiveManager, Store, Worker, read_clip, read_manifest, remove_job_files, write_clip
 
 WEB_DIR = ROOT / "web"
 UPLOAD_DIR = DATA_DIR / "uploads"
@@ -29,6 +30,7 @@ CLIP_RE = re.compile(r"^clip_\d{2}$")
 app = FastAPI(title="GTA VI Clip Pipeline", version=__version__)
 store = Store()
 worker = Worker(store, concurrency=int(os.environ.get("CLIPPER_CONCURRENCY", "1")))
+live_mgr = LiveManager(store, worker)
 
 PASSWORD = os.environ.get("CLIPPER_PASSWORD")
 
@@ -72,6 +74,8 @@ class JobOptions(BaseModel):
 
 class JobRequest(JobOptions):
     url: str
+    live: bool = False                                        # record a live stream, clip it every N minutes
+    chunk_minutes: int | None = Field(None, ge=5, le=120)    # live only; `count` = clips per chunk
 
 
 class ClipEdit(BaseModel):
@@ -135,6 +139,7 @@ def config():
             "scene_detection": s["detection"].get("scene_detection", False),
             "credit_overlay": s["render"].get("credit_overlay", True),
             "privacy": s["youtube"]["privacy"], "auto_upload": s["youtube"].get("auto_upload", False),
+            "chunk_minutes": live_config(s)["chunk_minutes"], "clips_per_chunk": live_config(s)["clips_per_chunk"],
         },
         "youtube": {**youtube.status(), "uploads_24h": store.uploads_last_24h(),
                     "daily_cap": s["youtube"].get("daily_upload_cap", 6)},
@@ -147,7 +152,12 @@ def create_job(req: JobRequest):
     url = req.url.strip()
     if not is_url(url):
         raise HTTPException(400, "Paste a full http(s) VOD URL, or use file upload.")
-    opts = {"overrides": _overrides(req), "streamer": req.streamer, "auto_upload": req.auto_upload}
+    overrides = _overrides(req)
+    if req.live:
+        overrides["live"] = {"chunk_minutes": req.chunk_minutes, "clips_per_chunk": req.count}
+        overrides["clips"]["count"] = None
+        return {"id": live_mgr.start(url, {"overrides": overrides, "auto_upload": req.auto_upload})}
+    opts = {"overrides": overrides, "streamer": req.streamer, "auto_upload": req.auto_upload}
     return {"id": worker.submit(url, opts)}
 
 
@@ -206,6 +216,9 @@ def retry_job(job_id: str):
         raise HTTPException(404, "job not found")
     if job["status"] not in ("failed", "cancelled"):
         raise HTTPException(400, "only failed/cancelled jobs can be retried")
+    if job["options"].get("mode") == "live":
+        opts = {k: v for k, v in job["options"].items() if k != "mode"}
+        return {"id": live_mgr.start(job["source"], opts)}
     if not is_url(job["source"]) and not Path(job["source"]).exists():
         raise HTTPException(400, "uploaded file is gone; upload it again")
     return {"id": worker.submit(job["source"], job["options"])}
