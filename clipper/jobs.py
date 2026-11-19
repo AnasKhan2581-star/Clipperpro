@@ -12,8 +12,8 @@ import traceback
 import uuid
 from pathlib import Path
 
-from . import pipeline, youtube
-from .config import DATA_DIR, load_settings
+from . import live, pipeline, youtube
+from .config import DATA_DIR, deep_merge, load_settings
 
 log = logging.getLogger(__name__)
 
@@ -164,13 +164,16 @@ class Worker:
         outdir = self.job_dir(job_id)
         try:
             manifest = pipeline.run(job["source"], outdir, opts.get("overrides"), reporter,
-                                    streamer_override=opts.get("streamer"))
+                                    streamer_override=opts.get("streamer"), live=opts.get("live"))
             self.store.update(job_id, status="done", stage="done", progress=1.0,
                               title=opts.get("filename") or manifest["info"].get("title"), logs=json.dumps(logs[-200:]),
                               message=f"{len(manifest['clips'])} clips ready")
             if opts.get("auto_upload"):
                 for clip in manifest["clips"]:
                     self.queue_upload(job_id, clip["name"])
+        except pipeline.NoMoments as exc:  # a quiet stretch of a live stream
+            self.store.update(job_id, status="done", stage="done", progress=1.0, title=opts.get("filename"),
+                              message=str(exc), logs=json.dumps(logs[-200:]))
         except pipeline.Cancelled:
             self.store.update(job_id, status="cancelled", message="Cancelled", logs=json.dumps(logs[-200:]))
         except Exception as exc:
@@ -210,6 +213,75 @@ class Worker:
                 self.store.set_upload(upload_id, status="done", video_id=res["video_id"], url=res["url"])
             except Exception as exc:
                 self.store.set_upload(upload_id, status="failed", error=str(exc)[:1000])
+
+
+def _plain_title(info: dict) -> str:
+    """Stream title without the live dot + date YouTube adds ("🔴 PLAYING GTA 6 2026-11-19 18:01")."""
+    import re
+    t = re.sub(r"\s+\d{4}-\d{2}-\d{2} \d{2}:\d{2}$", "", info.get("title") or "")
+    return t.lstrip("🔴 ").strip()
+
+
+class LiveManager:
+    """Runs live sessions (one thread each). A session records the stream and queues each
+    finished chunk as a normal job on the worker, so clips show up as the stream goes on."""
+
+    def __init__(self, store: Store, worker: Worker):
+        self.store, self.worker = store, worker
+
+    def start(self, url: str, options: dict) -> str:
+        job_id = self.store.create_job(url, {**options, "mode": "live"})
+        # never "queued": the worker must not pick it up (also not after a restart)
+        self.store.update(job_id, status="running", stage="live", progress=0.0,
+                          message="Connecting to the live stream…")
+        threading.Thread(target=self._run, args=(job_id,), name=f"live-{job_id}", daemon=True).start()
+        return job_id
+
+    def _run(self, job_id: str) -> None:
+        job = self.store.get(job_id)
+        if not job:
+            return
+        opts = job["options"]
+        overrides = opts.get("overrides") or {}
+        logs: list[str] = []
+
+        def log_fn(msg: str) -> None:
+            logs.append(f"[{time.strftime('%H:%M:%S')}] {msg}")
+            log.info("live %s: %s", job_id, msg)
+            self.store.update(job_id, message=msg, logs=json.dumps(logs[-200:]))
+
+        def status_fn(msg: str) -> None:
+            self.store.update(job_id, message=msg)
+
+        def on_info(info: dict) -> None:
+            self.store.update(job_id, title=f"🔴 LIVE · {_plain_title(info) or job['source']}")
+
+        def should_stop() -> bool:
+            j = self.store.get(job_id)
+            return bool(j and j["cancel"])
+
+        try:
+            settings = load_settings(overrides)
+            per_chunk = int(live.live_config(settings)["clips_per_chunk"])
+
+            def submit(path: Path, live_opts: dict) -> None:
+                title = f"🔴 {_plain_title(live_opts['info']) or 'Live'} · {live_opts['label']}"
+                self.worker.submit(str(path), {
+                    "overrides": deep_merge(overrides, {"clips": {"count": per_chunk}}),
+                    "live": live_opts, "live_session": job_id, "filename": title,
+                    "auto_upload": opts.get("auto_upload", False),
+                    "delete_upload_after": True,   # the chunk file is only needed until it's clipped
+                })
+
+            session = live.LiveSession(job["source"], self.worker.job_dir(job_id), settings, submit,
+                                       log_fn=log_fn, should_stop=should_stop, status_fn=status_fn, on_info=on_info)
+            res = session.run()
+            self.store.update(job_id, status="done", stage="done", progress=1.0, message=res["message"],
+                              logs=json.dumps(logs[-200:]))
+        except Exception as exc:
+            log.error("live %s failed: %s", job_id, traceback.format_exc())
+            self.store.update(job_id, status="failed", error=str(exc)[:2000], message="Failed",
+                              logs=json.dumps((logs + [f"ERROR: {exc}"])[-200:]))
 
 
 def read_manifest(job_dir: Path) -> dict | None:

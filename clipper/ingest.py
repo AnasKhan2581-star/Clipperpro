@@ -39,8 +39,10 @@ def _ydl_opts(settings: dict, extra: dict | None = None) -> dict:
     return opts
 
 
-def probe(source: str, settings: dict) -> dict:
-    """Return normalized metadata for a URL or local file."""
+def probe(source: str, settings: dict, allow_live: bool = False) -> dict:
+    """Return normalized metadata for a URL or local file.
+
+    Live streams are rejected unless `allow_live` (live mode records them instead)."""
     if not is_url(source):
         path = Path(source)
         if not path.exists():
@@ -66,8 +68,9 @@ def probe(source: str, settings: dict) -> dict:
             raise IngestError(_friendly_ytdlp_error(exc)) from exc
     if info.get("_type") == "playlist":
         raise IngestError("That URL is a playlist/channel. Paste a single VOD/video URL (or use the watch list).")
-    if info.get("is_live"):
-        raise IngestError("Stream is still live. Run the pipeline once the VOD is available.")
+    if info.get("is_live") and not allow_live:
+        raise IngestError("Stream is still live. Use “Clip while live” to clip it as it airs, "
+                          "or run a normal job once the VOD is available.")
     extractor = (info.get("extractor_key") or info.get("extractor") or "").lower()
     duration = float(info.get("duration") or 0)
     if not duration:  # direct file links: yt-dlp doesn't know the length, ffprobe does
@@ -93,6 +96,8 @@ def probe(source: str, settings: dict) -> dict:
         "is_local": False,
         "has_live_chat": bool((info.get("subtitles") or {}).get("live_chat")),
         "thumbnail": info.get("thumbnail"),
+        "is_live": bool(info.get("is_live")),
+        "release_timestamp": info.get("release_timestamp"),
     }
 
 

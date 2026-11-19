@@ -75,6 +75,10 @@ The first time takes about 5 minutes. After that it starts in seconds.
 3. Paste a VOD link, pick a layout and click **Find highlights & render**.
 4. Watch the progress bar. When it's done, preview each clip, edit the title and click **Download** or **Upload ▶**.
 
+**Stream still going?** Paste the live stream's link, tick **🔴 Clip while live** and click **Start live clipping**.
+New clips show up about every 20 minutes (open the LIVE job to see its chunks). Press **■ Stop** when you're done,
+or just let it run: it stops by itself when the stream ends. Keep the app and your PC on while it runs.
+
 To stop it, run `docker compose down`. To update it later, run `git pull` (or download the ZIP again) and then `docker compose up -d --build`.
 
 ---
@@ -122,7 +126,7 @@ Limits: about **6 uploads per day** on the free quota. Uploads are **private** b
 |---|---|
 | "not in your streamer allowlist" | Do Step 1 again. Check the spelling of `match` against the channel name in the link. |
 | "Sign in to confirm you're not a bot" | Use Way B for YouTube links, or add cookies (see the README). |
-| "Stream is still live" | Wait until the stream ends and the VOD is ready. |
+| "Stream is still live" | Tick **🔴 Clip while live** (Way B), or wait until the stream ends and the VOD is ready. |
 | Facecam crop shows the wrong area | Use the corner presets in the app, or change `facecam_box`. |
 | Captions are a bit off | Choose the Whisper model `small` (slower, more accurate). |
 | "Daily upload cap reached" | Wait 24 hours. That's YouTube's free limit. |

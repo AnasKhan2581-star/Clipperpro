@@ -106,6 +106,24 @@ Repository secrets (Settings → Secrets and variables → Actions):
 
 > YouTube often blocks downloads from datacenter IPs such as GitHub runners. Twitch and Kick VODs work reliably there. For YouTube sources, either add `YTDLP_COOKIES` or run the Docker app at home.
 
+## Clip while live
+
+Paste the URL of a stream that is **live right now**, tick **🔴 Clip while live**, and pick a chunk length
+(default 20 min). The app then:
+
+1. records the stream as it airs (ffmpeg stream copy into 1-minute pieces, no re-encode; old pieces are deleted once clipped),
+2. every 20 minutes joins the newest footage (plus 1 min of earlier context) into a chunk and queues it as a normal job,
+3. clips each chunk like a VOD: hype scan, Whisper, render, with **Clips** = clips per chunk.
+
+Clips appear in the job list a few minutes after each chunk, titled with their place in the stream (`🔴 … · 1:20:00–1:40:30`).
+Each moment belongs to exactly one chunk, so overlapping chunks never produce the same clip twice. The session
+reconnects on its own if the stream URL expires or the network drops. When the stream ends, or you press **■ Stop**,
+the last part is clipped as well. Source links point to the exact second in the stream (YouTube keeps the same timeline for the VOD).
+
+Limits: there is no chat signal while live (the audio signals still work), it needs the app running for the whole stream,
+and it uses about 3–4 GB/hour of bandwidth at 1080p. The `live:` section of `config/settings.yaml` holds the knobs.
+CLI: `python -m clipper live <url> --chunk-minutes 20 --clips 2 --layout facecam` (Ctrl+C stops it and clips the last part).
+
 ## Auto-watch channels
 
 List channels in `config/watchlist.yaml`. The **Watch channels** workflow then runs every 3 hours, finds new VODs whose titles mention GTA 6 / GTA VI, clips them and records processed IDs in `state/processed.json`. Set the repository variable `AUTO_UPLOAD=true` to publish automatically.

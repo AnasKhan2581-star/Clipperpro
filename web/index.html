@@ -37,6 +37,12 @@
           <label>Twitch / YouTube / Kick VOD URL
             <input type="url" id="url" placeholder="https://www.twitch.tv/videos/2345678901">
           </label>
+          <div class="live-row">
+            <label class="switch"><input type="checkbox" id="live"><span></span>🔴 Clip while live</label>
+            <label class="inline live-only hidden">every <input type="number" id="chunk_minutes" min="5" max="120"> min</label>
+          </div>
+          <p class="hint live-only hidden">Records the stream as it airs and clips each chunk. <b>Clips</b> = clips per chunk.
+            Press <b>Stop</b> when you're done: the last part gets clipped too. Leave the app running meanwhile.</p>
         </div>
         <div class="tab-panel hidden" data-panel="file">
           <label class="drop" id="drop">
@@ -46,7 +52,7 @@
         </div>
 
         <div class="grid2">
-          <label>Clips <input type="number" id="count" min="1" max="50"></label>
+          <label><span id="count-label">Clips</span> <input type="number" id="count" min="1" max="50"></label>
           <label>Streamer name <input type="text" id="streamer" placeholder="auto from VOD"></label>
           <label>Min length (s) <input type="number" id="min_seconds" min="5" max="180"></label>
           <label>Max length (s) <input type="number" id="max_seconds" min="5" max="180"></label>
@@ -129,6 +135,7 @@
         <li data-s="transcribe">Transcribe</li><li data-s="render">Render</li><li data-s="done">Done</li>
       </ol>
       <p class="status-msg" id="d-msg"></p>
+      <div class="live-chunks hidden" id="d-chunks"><h3>Chunks from this stream</h3><ul class="job-list"></ul></div>
       <div class="chart-wrap hidden" id="chart-wrap">
         <div class="row-between"><h3>Hype timeline</h3><span class="muted small">peaks = loud moments + chat spikes · bars = exported clips</span></div>
         <canvas id="chart" height="120"></canvas>

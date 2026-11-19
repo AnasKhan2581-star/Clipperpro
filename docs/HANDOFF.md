@@ -91,8 +91,19 @@ Pipeline (`clipper/pipeline.py`):
 `credit_label`, `cta` and `cta_seconds`. Precedence: base settings < streamer preset < job options.
 Web UI saves keep existing presets.
 
+**Live mode** (`live.py`, added 2026-11-19): "🔴 Clip while live" in the UI, or `python -m clipper live <url>`.
+- ffmpeg records the live HLS (video + audio playlists, `-copyts`, stream copy) into 1-minute `.ts` segments.
+  On YouTube the copied timestamps equal the position in the stream, so clips get exact `?t=` links.
+- Every `live.chunk_minutes` (20), segments + 60 s of context are joined into a chunk MP4 and queued as a
+  normal local-file job with `live` options: the stream's info, its offset, and a **peak window**.
+  Windows of consecutive chunks meet exactly, so no moment is clipped twice.
+- Reconnects when the stream URL expires; overlapping segments after a reconnect are trimmed (`inpoint`).
+  The session ends when the stream ends or on Stop/cancel, clipping the last part too.
+- The session itself is a job row (`options.mode = "live"`, run by `LiveManager` on its own thread, never queued);
+  chunk jobs carry `options.live_session`. A quiet chunk ends as "done" with no clips (`NoMoments`).
+
 Other parts:
-- `jobs.py`: SQLite store and worker threads
+- `jobs.py`: SQLite store, worker threads, `LiveManager`
 - `server.py`: REST API and static UI from `web/`; optional `CLIPPER_PASSWORD` basic auth
 - `watch.py`: channel watcher
 - `cli.py`: `python -m clipper run|serve|upload|auth-youtube|watch`
@@ -100,7 +111,7 @@ Other parts:
 GitHub Actions:
 - `clip.yml`: manual "Clip a VOD" run
 - `watch.yml`: every 3 hours
-- `ci.yml`: pytest (24 tests) + Docker build
+- `ci.yml`: pytest (32 tests) + Docker build
 - `e2e.yml`:
   - real Whisper on espeak speech
   - URL section download + fallback via a local HTTP server
@@ -116,7 +127,9 @@ GitHub Actions:
 | Real Whisper transcription | ✅ E2E: heard "The cops are chasing us. 5 stars. Run, run, let's go", picked that moment and titled the clip from it |
 | Section downloads | ✅ frame-identical to full-file cuts (PSNR 48 dB); fallback works |
 | Twitch | ✅ real 9.3 h Twitch VOD: metadata, credit link, 1080p section with one audio track |
-| **YouTube as a source** | ⚠️ YouTube blocks GitHub/datacenter IPs. It should work from the owner's home PC. If it says "Sign in to confirm you're not a bot", use cookies (§9). **Not yet tested with a real Tomo stream.** |
+| **YouTube as a source** | ✅ Works from the owner's home PC without cookies (2026-11-19: Tomo's 3 h "PLAYING GTA 6 FOR THE FIRST TIME", 5 clips, ~6 min). Still blocked from GitHub/datacenter IPs; if it ever says "Sign in to confirm you're not a bot", use cookies (§9). |
+| Tomo facecam box | ✅ Measured: `[0.70, 0.43, 0.30, 0.315]` (bottom-right, under chat), saved in the Tomo preset. Re-measure if he moves his cam. |
+| Live mode | ✅ 32 tests incl. a fake-live recording; started on Tomo's real Day 2 stream 2026-11-19 (see §8). |
 | YouTube upload API | ⏳ not tested (needs the owner's Google login) |
 
 Bugs found and fixed during debugging (so you don't reintroduce them):
@@ -254,11 +267,13 @@ Content Rewards takes a **10% fee**. Clips earn for 30 days after submission.
 2. Create the dedicated **YouTube** channel and **Instagram** account (TomoClips/TomoGTA6), with the campaign thumbnail as profile picture.
 3. Do the warm-up. Make sure **like counts are visible**.
 4. Connect the accounts in Whop (Settings → Connected Accounts).
-5. In the app (localhost:8000):
-   1. Check that **Tomo** is in Streamers & settings. If missing, the local copy is older than commit `a3a74e6`: update `config/streamers.yaml` from GitHub.
-   2. Paste the latest GTA VI stream from youtube.com/@Tomovids/streams.
-   3. Set Clips: 5, and Layout: facecam (pick the cam corner) or blur.
-   4. Click **Find highlights & render**.
+5. ✅ Done 2026-11-19 (Claude Code on the owner's PC):
+   - VOD "PLAYING GTA 6 FOR THE FIRST TIME": jobs `20261119-165029-abdae4` (blur) and `20261119-170659-4be88e` (facecam).
+     Suggested keepers: clip_02 (the mission reaction) and clip_03 (if the visual pays off), maybe clip_01. Drop clip_04 (mostly
+     cutscene dialogue) and clip_05 (his outro/giveaway plug; a misleading title).
+   - Live mode built, then started on Day 2 (`uDwiE9saR0c`): session `20261119-180117-e99e44`.
+   - From now on: for a stream that's live, tick **🔴 Clip while live**. For a finished one, paste the VOD with layout **facecam**
+     (the Tomo cam box is in the preset).
 6. **Review like an editor:**
    - keep 2–3 clips
    - hook in 2 seconds, one clear moment
@@ -283,6 +298,10 @@ Content Rewards takes a **10% fee**. Clips earn for 30 days after submission.
 - anything involving payments
 
 ---
+
+**Note (2026-11-19):** the owner added a local-only "Kai cenat" allowlist entry (permission note: "allowed personally").
+No public blanket permission is known for Kai Cenat (§7), so keep proof of that OK (the message or screenshot) in case
+of a Content ID claim or strike. The entry is not in the repo's `config/streamers.yaml`.
 
 ## 9. Troubleshooting (Windows)
 

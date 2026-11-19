@@ -62,6 +62,62 @@ def _upload_dir(out: Path, manifest: dict) -> None:
         print(f"  ↑ uploaded {c['name']}: {res['url']}")
 
 
+def cmd_live(a: argparse.Namespace) -> int:
+    """Record a live stream and clip it every N minutes until it ends (or Ctrl+C)."""
+    import signal
+    import threading
+    from concurrent.futures import ThreadPoolExecutor
+
+    from . import live, pipeline
+    from .config import deep_merge, load_settings
+
+    out = Path(a.out or f"out/live-{time.strftime('%Y%m%d-%H%M%S')}")
+    overrides = _overrides(a)
+    overrides["clips"]["count"] = None
+    overrides["live"] = {"chunk_minutes": a.chunk_minutes, "clips_per_chunk": a.clips}
+    settings = load_settings(overrides)
+    per_chunk = live.live_config(settings)["clips_per_chunk"]
+    stop = threading.Event()
+    renders = ThreadPoolExecutor(max_workers=1)   # clip chunks one at a time while recording continues
+
+    def say(msg: str) -> None:
+        print(f"[{time.strftime('%H:%M:%S')}] {msg}", flush=True)
+
+    def clip_chunk(path: Path, live_opts: dict, n: int) -> None:
+        chunk_out = out / f"chunk_{n:03d}"
+        try:
+            m = pipeline.run(str(path), chunk_out, deep_merge(overrides, {"clips": {"count": per_chunk}}),
+                             live=live_opts)
+            for c in m["clips"]:
+                say(f"  ✔ {chunk_out / c['file']}  @{live.fmt(c['stream_start'])}  {c['title']}")
+        except pipeline.NoMoments as exc:
+            say(f"  · stream {live_opts['label']}: {exc}")
+        except Exception as exc:
+            say(f"  ✘ stream {live_opts['label']}: {exc}")
+        finally:
+            path.unlink(missing_ok=True)
+
+    count = [0]
+
+    def submit(path: Path, live_opts: dict) -> None:
+        count[0] += 1
+        renders.submit(clip_chunk, path, live_opts, count[0])
+
+    def on_ctrl_c(*_):  # first Ctrl+C: stop recording but still clip the last part; second: quit now
+        stop.set()
+        say("Stopping… the last part still gets clipped (Ctrl+C again to quit now)")
+        signal.signal(signal.SIGINT, signal.default_int_handler)
+
+    signal.signal(signal.SIGINT, on_ctrl_c)
+    session = live.LiveSession(a.source, out / "recording", settings, submit, log_fn=say, should_stop=stop.is_set)
+    try:
+        session.run()
+    finally:
+        renders.shutdown(wait=True)
+    print(f"\n✔ Clips in {out}")
+    return 0
+
+
 def cmd_upload(a: argparse.Namespace) -> int:
     out = Path(a.dir)
     manifest = json.loads((out / "manifest.json").read_text())
@@ -122,6 +178,23 @@ def main(argv: list[str] | None = None) -> int:
     r.add_argument("--privacy", choices=["private", "unlisted", "public"])
     r.add_argument("--upload", action="store_true", help="upload clips to YouTube when done")
     r.set_defaults(func=cmd_run)
+
+    lv = sub.add_parser("live", help="record a live stream and clip it every N minutes while it airs")
+    lv.add_argument("source", help="URL of a stream that is live right now")
+    lv.add_argument("--out", help="output directory (default out/live-<timestamp>)")
+    lv.add_argument("--chunk-minutes", type=int, help="clip every N minutes (default 20)")
+    lv.add_argument("--clips", type=int, help="clips per chunk (default 2)")
+    lv.add_argument("--min-seconds", type=float)
+    lv.add_argument("--max-seconds", type=float)
+    lv.add_argument("--layout", choices=["blur", "facecam", "crop", "landscape"])
+    lv.add_argument("--facecam-box", help="x,y,w,h normalized, e.g. 0.7,0.43,0.3,0.315")
+    lv.add_argument("--fps", type=int, choices=[30, 60])
+    lv.add_argument("--no-captions", action="store_true")
+    lv.add_argument("--no-credit", action="store_true")
+    lv.add_argument("--whisper-model", choices=["tiny", "base", "small", "medium"])
+    lv.add_argument("--language")
+    lv.add_argument("--cookies", help="cookies.txt for yt-dlp")
+    lv.set_defaults(func=cmd_live, scenes=False, privacy=None)
 
     s = sub.add_parser("serve", help="start the web app")
     s.add_argument("--host", default=os.environ.get("HOST", "0.0.0.0"))

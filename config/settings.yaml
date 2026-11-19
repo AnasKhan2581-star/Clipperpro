@@ -96,6 +96,13 @@ youtube:
   daily_upload_cap: 6   # free API quota allows ~6 uploads/day
   auto_upload: false
 
+live:                   # "Clip while live": record a live stream and clip it in chunks as it airs
+  chunk_minutes: 20     # clip every N minutes (shorter = faster clips, more CPU)
+  clips_per_chunk: 2
+  segment_seconds: 60   # recording is stored as 1-minute pieces; old ones are deleted once clipped
+  context_seconds: 60   # earlier footage added before each chunk, so a moment's build-up isn't cut
+  min_final_seconds: 120  # a leftover shorter than this when the stream ends isn't clipped
+
 download:
   sections: true        # only download the highlight sections (huge bandwidth saver)
   cookies_file: null    # path to cookies.txt (helps with YouTube bot checks)

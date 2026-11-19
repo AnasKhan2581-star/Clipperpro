@@ -25,6 +25,10 @@ class Cancelled(RuntimeError):
     pass
 
 
+class NoMoments(PipelineError):
+    """A live chunk had nothing worth clipping."""
+
+
 @dataclass
 class Reporter:
     """Progress sink. The web worker persists these; the CLI prints them."""
@@ -43,9 +47,16 @@ class Reporter:
 
 
 def run(source: str, outdir: Path, overrides: dict | None = None, reporter: Reporter | None = None,
-        streamer_override: str | None = None) -> dict:
-    """Run the full pipeline. Returns the manifest dict (also written to outdir/manifest.json)."""
+        streamer_override: str | None = None, live: dict | None = None) -> dict:
+    """Run the full pipeline. Returns the manifest dict (also written to outdir/manifest.json).
+
+    `live` is set for a chunk recorded by live mode (see live.py): `info` = the live stream's
+    metadata (credit, allowlist, source link), `offset` = the chunk's start in the stream, and
+    `peak_from`/`peak_to` = the part of the chunk this chunk may pick moments from
+    (chunks overlap, so each moment belongs to exactly one chunk)."""
     rep = reporter or Reporter()
+    live = live or {}
+    stream_offset = float(live.get("offset") or 0.0)
     settings = load_settings(overrides)
     clip_cfg, det = settings["clips"], settings["detection"]
     outdir.mkdir(parents=True, exist_ok=True)
@@ -55,6 +66,8 @@ def run(source: str, outdir: Path, overrides: dict | None = None, reporter: Repo
     # 1. probe + allowlist ----------------------------------------------------
     rep("probe", 0.01, "Reading video info…")
     info = ingest.probe(source, settings)
+    if live.get("info"):  # the chunk is a local file, but credit/links come from the live stream
+        info.update({k: v for k, v in live["info"].items() if k not in ("is_local", "path", "duration")})
     if streamer_override:
         info["uploader"] = streamer_override
     duration = float(info.get("duration") or 0)
@@ -116,7 +129,13 @@ def run(source: str, outdir: Path, overrides: dict | None = None, reporter: Repo
     score = highlights.combine(signals, det.get("weights", {}), det.get("smoothing_seconds", 6))
     n_cand = clip_cfg["count"] * max(1, int(det.get("candidate_multiplier", 3)))
     cands = highlights.pick_candidates(score, n_cand, clip_cfg, duration)
+    peak_from, peak_to = live.get("peak_from"), live.get("peak_to")
+    if peak_from is not None or peak_to is not None:
+        lo, hi = float(peak_from or 0.0), float(duration if peak_to is None else peak_to)
+        cands = [c for c in cands if lo <= c.peak < hi]
     if not cands:
+        if live:  # a quiet stretch of a live stream is normal, not an error
+            raise NoMoments("No standout moments in this part of the stream.")
         raise PipelineError("No highlight candidates found (is the video long enough?).")
     rep("analyze", 0.42, f"Found {len(cands)} candidate moments")
 
@@ -183,7 +202,7 @@ def run(source: str, outdir: Path, overrides: dict | None = None, reporter: Repo
         out = clips_dir / f"{name}.mp4"
         render.render_clip(src, offset, c.duration, out, rcfg, ass_path)
         thumb = render.thumbnail(out, min(c.peak - c.start, c.duration - 0.5), clips_dir / f"{name}.jpg")
-        meta = metadata.build({"hook": c.hook, "start": c.start}, info, entry, settings["metadata"])
+        meta = metadata.build({"hook": c.hook, "start": c.start + stream_offset}, info, entry, settings["metadata"])
         clip = {
             "name": name,
             "file": f"clips/{name}.mp4",
@@ -191,7 +210,8 @@ def run(source: str, outdir: Path, overrides: dict | None = None, reporter: Repo
             "start": c.start, "end": c.end, "duration": round(c.duration, 2), "peak": c.peak,
             "score": round(c.final_score, 3), "keyword_hits": c.keyword_hits, "hook": c.hook,
             "transcript": " ".join(w["word"] for w in c.words),
-            "source_link": metadata.timestamped_url(info.get("webpage_url"), c.start),
+            "source_link": metadata.timestamped_url(info.get("webpage_url"), c.start + stream_offset),
+            **({"stream_start": round(c.start + stream_offset, 2)} if live else {}),
             **meta,
         }
         (clips_dir / f"{name}.json").write_text(json.dumps(clip, indent=2, ensure_ascii=False))

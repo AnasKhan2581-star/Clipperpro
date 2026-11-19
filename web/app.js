@@ -29,7 +29,16 @@ async function loadConfig() {
   $("#whisper_model").value = d.whisper_model;
   const radio = $(`input[name=layout][value=${d.layout}]`); if (radio) radio.checked = true;
   state.box = d.facecam_box.slice();
-  syncBox(); syncLayout(); renderYt();
+  $("#chunk_minutes").value = d.chunk_minutes;
+  syncBox(); syncLayout(); syncLive(); renderYt();
+}
+
+function syncLive() {
+  const on = $("#live").checked, d = state.config && state.config.defaults;
+  $$(".live-only").forEach((el) => el.classList.toggle("hidden", !on));
+  $("#count-label").textContent = on ? "Clips per chunk" : "Clips";
+  if (d) $("#count").value = on ? d.clips_per_chunk : d.count;
+  $("#submit").textContent = on ? "🔴 Start live clipping" : "Find highlights & render";
 }
 
 function renderYt() {
@@ -62,6 +71,7 @@ function bindForm() {
     $$(".tab-panel").forEach((p) => p.classList.toggle("hidden", p.dataset.panel !== state.tab));
   }));
   $$("input[name=layout]").forEach((r) => r.addEventListener("change", syncLayout));
+  $("#live").addEventListener("change", syncLive);
   $$("#facecam-box .chip").forEach((c) => c.addEventListener("click", () => { state.box = c.dataset.box.split(",").map(Number); syncBox(); }));
   $$("#facecam-box .grid4 input").forEach((i) => i.addEventListener("input", () => {
     const v = Math.min(1, Math.max(0, parseFloat(i.value) || 0)); state.box[+i.dataset.k] = v; syncBox();
@@ -95,7 +105,9 @@ async function submitJob(e) {
     if (state.tab === "url") {
       const url = $("#url").value.trim();
       if (!url) throw new Error("Paste a VOD URL first.");
-      res = await api("api/jobs", { method: "POST", body: JSON.stringify({ url, ...options() }) });
+      const live = $("#live").checked;
+      const extra = live ? { live: true, chunk_minutes: parseInt($("#chunk_minutes").value, 10) || null } : {};
+      res = await api("api/jobs", { method: "POST", body: JSON.stringify({ url, ...options(), ...extra }) });
       $("#url").value = "";
     } else {
       if (!state.file) throw new Error("Choose a video file first.");
@@ -103,7 +115,7 @@ async function submitJob(e) {
       msg.textContent = "Uploading…";
       res = await uploadWithProgress(fd, (p) => (msg.textContent = `Uploading… ${Math.round(p * 100)}%`));
     }
-    msg.className = "form-msg ok"; msg.textContent = "Job queued 🚀";
+    msg.className = "form-msg ok"; msg.textContent = $("#live").checked && state.tab === "url" ? "Live clipping started 🔴" : "Job queued 🚀";
     await refreshJobs(); openJob(res.id);
   } catch (err) {
     msg.className = "form-msg err"; msg.textContent = err.message;
@@ -131,8 +143,9 @@ async function refreshJobs() {
     const li = document.createElement("li");
     li.className = "job" + (state.current === j.id ? " active" : "");
     const title = j.title || j.options.filename || j.source.replace(/^https?:\/\/(www\.)?/, "");
-    li.innerHTML = `<span class="t"></span><span class="badge ${j.status}">${j.status}</span><span class="m"></span>` +
-      (j.status === "running" ? `<span class="mini"><i style="width:${(j.progress * 100).toFixed(1)}%"></i></span>` : "");
+    const isLive = j.options.mode === "live" && j.status === "running";
+    li.innerHTML = `<span class="t"></span><span class="badge ${isLive ? "live" : j.status}">${isLive ? "live" : j.status}</span><span class="m"></span>` +
+      (j.status === "running" && !isLive ? `<span class="mini"><i style="width:${(j.progress * 100).toFixed(1)}%"></i></span>` : "");
     $(".t", li).textContent = title;
     $(".m", li).textContent = `${ago(j.created_at)} · ${j.error || j.message || ""}`;
     li.addEventListener("click", () => openJob(j.id));
@@ -157,10 +170,17 @@ async function renderJob() {
   try { j = await api(`api/jobs/${state.current}`); } catch { return; }
   const m = j.manifest;
   $("#d-title").textContent = j.title || (m && m.info.title) || j.options.filename || "Job";
-  $("#d-sub").textContent = [m && m.streamer && "Credit: " + m.streamer.name, m && fmtTime(m.info.duration) + " VOD", j.source.startsWith("http") ? j.source : null].filter(Boolean).join(" · ");
+  const session = j.options.mode === "live";
+  const chunkOf = j.options.live && j.options.live_session;
+  $("#d-sub").textContent = [m && m.streamer && "Credit: " + m.streamer.name,
+    session ? "Live session" : chunkOf ? "Live chunk · stream " + j.options.live.label : m && fmtTime(m.info.duration) + " VOD",
+    j.source.startsWith("http") ? j.source : null].filter(Boolean).join(" · ");
   $("#d-bar").style.width = (j.status === "done" ? 100 : j.progress * 100) + "%";
+  $("#d-bar").classList.toggle("live", session && j.status === "running");
+  $("#d-stages").classList.toggle("hidden", session);
   const idx = STAGES.indexOf(j.status === "done" ? "done" : j.stage);
   $$("#d-stages li").forEach((li, i) => { li.className = i < idx || j.status === "done" ? "done" : i === idx && j.status === "running" ? "now" : ""; });
+  renderChunks(session ? j : null);
   const msg = $("#d-msg");
   msg.className = "status-msg" + (j.status === "failed" ? " err" : "");
   msg.textContent = j.status === "failed" ? "✘ " + (j.error || "Failed") : j.message || "";
@@ -170,12 +190,32 @@ async function renderJob() {
 
   const act = $("#d-actions"); act.innerHTML = "";
   const mk = (label, cls, fn) => { const b = document.createElement("button"); b.className = "btn ghost " + cls; b.textContent = label; b.onclick = fn; act.appendChild(b); };
-  if (j.status === "running" || j.status === "queued") mk("Cancel", "danger", async () => { await api(`api/jobs/${j.id}/cancel`, { method: "POST" }); tick(); });
+  if (session && j.status === "running") mk(j.cancel ? "Stopping…" : "■ Stop", "danger", async () => {
+    if (!confirm("Stop recording? The part recorded since the last chunk still gets clipped.")) return;
+    await api(`api/jobs/${j.id}/cancel`, { method: "POST" }); tick();
+  });
+  else if (j.status === "running" || j.status === "queued") mk("Cancel", "danger", async () => { await api(`api/jobs/${j.id}/cancel`, { method: "POST" }); tick(); });
   if (j.status === "failed" || j.status === "cancelled") mk("Retry", "", async () => { try { const r = await api(`api/jobs/${j.id}/retry`, { method: "POST" }); await refreshJobs(); openJob(r.id); } catch (e) { alert(e.message); } });
   if (j.status !== "running") mk("Delete", "danger", async () => { if (!confirm("Delete this job and its clips?")) return; await api(`api/jobs/${j.id}`, { method: "DELETE" }); state.current = null; $("#detail").classList.add("hidden"); refreshJobs(); });
 
   if (m) { $("#chart-wrap").classList.remove("hidden"); drawChart(m); } else $("#chart-wrap").classList.add("hidden");
   renderClips(j);
+}
+
+function renderChunks(session) {
+  const box = $("#d-chunks"), ul = $("ul", box);
+  const chunks = session ? state.jobs.filter((x) => x.options.live_session === session.id).reverse() : [];
+  box.classList.toggle("hidden", !session);
+  if (!session) return;
+  ul.innerHTML = chunks.length ? "" : `<li class="muted small">The first chunk is sent after ${state.config.defaults.chunk_minutes}+ min of recording.</li>`;
+  for (const c of chunks) {
+    const li = document.createElement("li"); li.className = "job";
+    li.innerHTML = `<span class="t"></span><span class="badge ${c.status}">${c.status}</span><span class="m"></span>`;
+    $(".t", li).textContent = "Stream " + c.options.live.label;
+    $(".m", li).textContent = c.error || c.message || "";
+    li.addEventListener("click", () => openJob(c.id));
+    ul.appendChild(li);
+  }
 }
 
 function renderClips(j) {
@@ -191,7 +231,7 @@ function renderClips(j) {
       el.dataset.clip = c.name; if (land) el.classList.add("land");
       const base = `media/${j.id}/clips/`;
       const v = $("video", el); v.src = base + c.name + ".mp4"; if (c.thumbnail) v.poster = base + c.name + ".jpg";
-      $(".score", el).textContent = `🔥 ${c.score.toFixed(1)} · ${fmtTime(c.start)} · ${Math.round(c.duration)}s`;
+      $(".score", el).textContent = `🔥 ${c.score.toFixed(1)} · ${fmtTime(c.stream_start ?? c.start)} · ${Math.round(c.duration)}s`;
       const src = $(".src", el); if (c.source_link) src.href = c.source_link; else src.remove();
       $(".c-title", el).value = c.title; $(".c-desc", el).value = c.description;
       $(".transcript", el).textContent = c.transcript ? `“${c.transcript}”` : "";
