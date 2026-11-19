@@ -12,7 +12,7 @@ from typing import Callable
 import numpy as np
 
 from . import analysis, captions, highlights, ingest, metadata, render
-from .config import load_settings, load_streamers, match_streamer
+from .config import deep_merge, load_settings, load_streamers, match_streamer
 
 log = logging.getLogger(__name__)
 
@@ -74,6 +74,13 @@ def run(source: str, outdir: Path, overrides: dict | None = None, reporter: Repo
         entry = {"name": streamer_override or info.get("uploader") or "Streamer",
                  "credit_url": info.get("channel_url") or ""}
     rep("probe", 0.03, f"Credit: {entry.get('name')} {entry.get('credit_url') or ''}".strip())
+    preset = entry.get("preset") or {}
+    if preset:
+        # streamer preset (campaign rules) < job options chosen for this run
+        preset_cfg = {k: v for k, v in preset.items() if k in settings}
+        settings = load_settings(deep_merge(preset_cfg, overrides or {}))
+        clip_cfg, det = settings["clips"], settings["detection"]
+        rep("probe", 0.03, f"Applied {entry.get('name')} preset")
 
     # 2. media for analysis ---------------------------------------------------
     local_video: Path | None = Path(source) if info.get("is_local") else None
@@ -162,11 +169,15 @@ def run(source: str, outdir: Path, overrides: dict | None = None, reporter: Repo
         if local_video is not None:
             src, offset = local_video, c.start
         ass_path = None
-        credit = metadata.credit_label(entry.get("name", ""), entry.get("credit_url")) if rcfg.get("credit_overlay", True) else None
-        if (cap_cfg.get("enabled", True) and c.words) or credit:
+        credit = None
+        if rcfg.get("credit_overlay", True):
+            credit = preset.get("credit_label") or metadata.credit_label(entry.get("name", ""), entry.get("credit_url"))
+        cta = preset.get("cta")
+        if (cap_cfg.get("enabled", True) and c.words) or credit or cta:
             words = c.words if cap_cfg.get("enabled", True) else []
             ass = captions.build_ass(words, c.start, c.end, cap_cfg, width=width, height=height,
-                                     font=rcfg.get("font", "Anton"), credit=credit)
+                                     font=rcfg.get("font", "Anton"), credit=credit, cta=cta,
+                                     cta_seconds=float(preset.get("cta_seconds", 3.5)))
             ass_path = captions.write_ass(clips_dir / f"{name}.ass", ass)
         rep("render", base + 0.1 / len(chosen), f"Rendering {name} ({rcfg['layout']}, {c.duration:.0f}s)…")
         out = clips_dir / f"{name}.mp4"

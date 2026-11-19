@@ -61,3 +61,21 @@ def test_cli_upload_uses_job_privacy(tmp_path, monkeypatch):
     monkeypatch.setattr(youtube, "upload", lambda video, title, desc, tags, cfg, thumb=None: seen.update(title=title, privacy=cfg["privacy"]) or {"url": "u"})
     cli._upload_dir(tmp_path, manifest)
     assert seen == {"title": "Edited", "privacy": "public"}
+
+
+def test_ui_save_keeps_presets(monkeypatch, tmp_path):
+    from clipper import config
+
+    monkeypatch.setattr(config, "CONFIG_DIR", tmp_path)
+    config.save_streamers({"streamers": [{"name": "A", "match": ["a"], "preset": {"cta": "SUB"}}]})
+    config.save_streamers({"streamers": [{"name": "A", "match": ["a", "aa"], "credit_url": "u"}]})  # UI payload
+    s = config.load_streamers()["streamers"][0]
+    assert s["match"] == ["a", "aa"] and s["preset"] == {"cta": "SUB"}
+
+
+def test_hashtags_rotate_but_keep_required():
+    cfg = {"title_template": "{hook} {hashtags}", "required_hashtags": ["#tomovids", "#gta6"],
+           "hashtag_pool": ["#a", "#b", "#c", "#d", "#e", "#f"], "hashtag_extra": 3}
+    titles = {metadata.build({"hook": "x", "start": s}, {"id": "v"}, {"name": "T"}, cfg)["title"] for s in range(0, 600, 60)}
+    assert all(t.split()[1:3] == ["#tomovids", "#gta6"] and len(t.split()) == 6 for t in titles)
+    assert len(titles) > 1   # extra hashtags differ between clips

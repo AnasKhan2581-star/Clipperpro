@@ -68,3 +68,25 @@ def test_caption_failure_is_reported_not_silent(sample_video, tmp_path, monkeypa
     m = pipeline.run(str(sample_video), tmp_path, overrides, streamer_override="Tester")
     assert len(m["clips"]) == 1
     assert m["warnings"] and "model download blocked" in m["warnings"][0]
+
+
+def test_streamer_preset_applies_campaign_rules(sample_video, tmp_path, monkeypatch):
+    import yaml
+
+    from clipper.config import CONFIG_DIR
+    tomo = next(s for s in yaml.safe_load((CONFIG_DIR / "streamers.yaml").read_text())["streamers"]
+                if s["name"] == "Tomo")
+    monkeypatch.setattr(pipeline, "load_streamers", lambda: {"enforce": True, "streamers": [tomo]})
+    overrides = {"clips": {"count": 1, "min_seconds": 15, "max_seconds": 30},
+                 "captions": {"enabled": False}, "detection": {"weights": {"keywords": 0}}}
+    m = pipeline.run(str(sample_video), tmp_path, overrides, streamer_override="Tomovids")
+    clip = m["clips"][0]
+    assert m["settings"]["clips"]["pre_roll"] == 0.2          # preset applied
+    assert m["settings"]["clips"]["max_seconds"] == 30         # job option still wins
+    assert "#tomovids" in clip["title"] and "#gta6" in clip["title"] and len(clip["title"]) <= 100
+    assert "@Tomovids" in clip["description"]
+    assert "#tomovids" in clip["description"] and "#gta6" in clip["description"]
+    assert len([w for w in clip["description"].split() if w.startswith("#")]) == 5   # 2 required + 3 rotating
+    ass = (tmp_path / "clips" / "clip_01.ass").read_text()
+    assert "Credit,,0,0,0,,@Tomovids" in ass
+    assert "CTA,,0,0,0,,{\\fad(250,0)}SUBSCRIBE TO TOMO ON YOUTUBE @Tomovids" in ass

@@ -36,7 +36,7 @@ def chunk_words(words: list[dict], per_line: int = 3, max_chars: int = 20, max_g
 
 def build_ass(words: list[dict], clip_start: float, clip_end: float, cfg: dict, *,
               width: int = 1080, height: int = 1920, font: str = "Anton",
-              credit: str | None = None) -> str:
+              credit: str | None = None, cta: str | None = None, cta_seconds: float = 3.5) -> str:
     """`words` use absolute VOD time; output is relative to the clip start."""
     cap = cfg or {}
     size = int(cap.get("font_size", 86) * (width / 1080 if width < height else height / 1920 * 1.0))
@@ -59,6 +59,7 @@ ScaledBorderAndShadow: yes
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
 Style: Caption,{font},{size},{text_c},{text_c},&H00000000,&H96000000,-1,0,0,0,100,100,1,0,1,7,3,2,60,60,{margin_v},1
 Style: Credit,{font},{credit_size},&H00FFFFFF,&H00FFFFFF,&H00000000,&H80000000,-1,0,0,0,100,100,1,0,1,4,2,8,40,40,{int(height * 0.06)},1
+Style: CTA,{font},{int(size * 0.8)},{hi_c},{hi_c},&H00000000,&HB4000000,-1,0,0,0,100,100,1,0,3,10,0,8,70,70,{int(height * 0.16)},1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -67,6 +68,10 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     duration = clip_end - clip_start
     if credit:
         events.append(f"Dialogue: 1,{_ts(0)},{_ts(duration)},Credit,,0,0,0,,{_esc(credit)}")
+    if cta:
+        # call-to-action card for the last few seconds (boxed so it reads on any background)
+        start = max(0.0, duration - cta_seconds)
+        events.append(f"Dialogue: 2,{_ts(start)},{_ts(duration)},CTA,,0,0,0,,{{\\fad(250,0)}}{_esc(cta)}")
 
     rel = []
     for w in words:

@@ -81,6 +81,7 @@ def save_streamers(data: dict) -> None:
         "# Streamer allowlist + credit info (edited from the web UI).\n"
         "# Only add streamers whose rules allow clipping, or who gave you permission.\n\n"
     )
+    existing = {s.get("name"): s for s in load_streamers().get("streamers", [])}
     clean = {
         "enforce": bool(data.get("enforce", True)),
         "streamers": [
@@ -89,6 +90,8 @@ def save_streamers(data: dict) -> None:
                 "match": [str(m).strip() for m in (s.get("match") or []) if str(m).strip()],
                 "credit_url": str(s.get("credit_url") or "").strip(),
                 "permission": str(s.get("permission") or "").strip(),
+                **({"preset": s.get("preset") or existing.get(str(s.get("name", "")).strip(), {}).get("preset")}
+                   if (s.get("preset") or existing.get(str(s.get("name", "")).strip(), {}).get("preset")) else {}),
             }
             for s in data.get("streamers", [])
             if str(s.get("name", "")).strip()

@@ -11,7 +11,30 @@
 
 enforce: true
 
-streamers: []
+streamers:
+  - name: Tomo
+    match: [tomovids, "youtube.com/@tomovids"]
+    credit_url: https://www.youtube.com/@Tomovids
+    permission: "Clipping Nation 'Tomo GTA VI Clipping' campaign on Content Rewards ($1.5/1K views, min 2,333 views, max $150/video). Brief read 2026-11-19. Valid only while you are joined and the campaign is live."
+    # Preset = the campaign brief's rules, applied automatically to every Tomo clip.
+    preset:
+      credit_label: "@Tomovids"                            # on-screen credit (top)
+      cta: "SUBSCRIBE TO TOMO ON YOUTUBE @Tomovids"         # brief: CTA required, on screen
+      cta_seconds: 3.5
+      clips: {pre_roll: 0.2, target_seconds: 30}            # brief: hook in the first 2 seconds
+      captions: {enabled: true, language: en}               # brief: English, readable without sound
+      metadata:
+        title_template: "{hook} 😂 Tomo GTA 6 #tomovids #gta6"
+        description_template: |
+          {hook} 😂
+          Subscribe to Tomo on YouTube 👉 @Tomovids
+          🎥 Full stream: {source_url_t}
+
+          {hashtags}
+        required_hashtags: ["#tomovids", "#gta6"]          # brief: required in every caption
+        hashtag_pool: ["#tomo", "#gtavi", "#gta", "#gaming", "#funnymoments", "#gta6gameplay"]
+        hashtag_extra: 3                                    # brief: mix hashtags between posts
+        tags: [Tomo, Tomovids, GTA 6, GTA VI, GTA 6 funny moments, gaming]
 # - name: ExampleStreamer
 #   match: [examplestreamer, "twitch.tv/examplestreamer"]
 #   credit_url: https://twitch.tv/examplestreamer

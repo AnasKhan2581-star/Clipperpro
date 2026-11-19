@@ -1,6 +1,7 @@
 """Titles, descriptions and tags for each clip (with mandatory source credit)."""
 from __future__ import annotations
 
+import random
 import re
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
@@ -48,6 +49,11 @@ def build(clip: dict, info: dict, streamer: dict, meta_cfg: dict) -> dict:
         channel_url=channel_url,
         vod_title=info.get("title") or "",
     )
+    required = [h for h in (meta_cfg.get("required_hashtags") or [])]
+    pool = [h for h in (meta_cfg.get("hashtag_pool") or []) if h not in required]
+    rng = random.Random(f"{info.get('id')}-{clip.get('start')}")  # stable per clip, varies between clips
+    extra = rng.sample(pool, k=min(int(meta_cfg.get("hashtag_extra", 3)), len(pool)))
+    values["hashtags"] = " ".join(required + extra)
     title = (meta_cfg.get("title_template") or "{streamer} {hook}").format_map(values)
     title = re.sub(r"\s+", " ", title).strip()
     if len(title) > 100:  # YouTube hard limit
