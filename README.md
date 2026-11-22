@@ -120,9 +120,20 @@ Each moment belongs to exactly one chunk, so overlapping chunks never produce th
 reconnects on its own if the stream URL expires or the network drops. When the stream ends, or you press **■ Stop**,
 the last part is clipped as well. Source links point to the exact second in the stream (YouTube keeps the same timeline for the VOD).
 
-Limits: there is no chat signal while live (the audio signals still work), it needs the app running for the whole stream,
+Live chat is recorded alongside (YouTube via yt-dlp, Twitch via an anonymous read-only IRC login) and used as the
+chat signal for each chunk, mapped to stream time through the recorded segments' clock.
+
+Limits: it needs the app running for the whole stream,
 and it uses about 3–4 GB/hour of bandwidth at 1080p. The `live:` section of `config/settings.yaml` holds the knobs.
 CLI: `python -m clipper live <url> --chunk-minutes 20 --clips 2 --layout facecam` (Ctrl+C stops it and clips the last part).
+
+## Trim / extend a clip
+
+Every clip card has **✂ Trim / extend**. Set a new start and end on the stream's own timeline (h:mm:ss), nudge by ±5 s,
+or pause the preview and use **Start/End at playhead**, then click **Re-cut clip**. The app downloads just that section
+(from the VOD, or from the stream's replay for live clips), re-transcribes it so the captions match, and re-renders it
+with the same layout, credit and CTA. Your title is kept, and the source link moves to the new start. Clips can be 3–180 s.
+Uploaded files are deleted after clipping, so clips from uploads can't be re-cut (upload again).
 
 ## Auto-watch channels
 
