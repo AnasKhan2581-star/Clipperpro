@@ -95,16 +95,29 @@ def loudness_signals(db: np.ndarray, baseline_seconds: float) -> tuple[np.ndarra
     return loud_z, rise_z
 
 
-def chat_signal(times: list[float], length: int) -> np.ndarray:
+CHAT_SMOOTH = 5     # seconds
+CHAT_LAG = 4        # chat reacts a few seconds AFTER the moment: the signal is shifted earlier
+
+
+def chat_signal(times: list[float], length: int, lag: int = CHAT_LAG) -> np.ndarray:
+    """Chat activity above its local normal, in noise units.
+
+    Message counts are Poisson-like: in a quiet chat (Tomo: ~15 msgs/min) a handful of
+    messages in a row is just chance, and a plain robust z-score (spread ≈ 0) would call it a
+    huge spike. So the spread is at least the Poisson noise of the smoothed count."""
     if not times or length == 0:
         return np.zeros(length)
-    counts = np.bincount(np.clip(np.asarray(times, dtype=int), 0, length - 1), minlength=length).astype(float)
-    counts = smooth(counts, 5)
-    # chat reacts a few seconds AFTER the moment: shift the signal earlier
-    lag = 4
+    t = np.asarray(times, dtype=float)
+    t = t[(t >= 0) & (t < length)]
+    counts = np.bincount(t.astype(int), minlength=length)[:length].astype(float)
+    counts = smooth(counts, CHAT_SMOOTH)
     counts = np.concatenate([counts[lag:], np.zeros(lag)])
     baseline = rolling_median(counts, 300)
-    return robust_z(counts - baseline)
+    excess = counts - baseline
+    med = np.median(excess)
+    mad = np.median(np.abs(excess - med)) * 1.4826
+    poisson = np.sqrt(np.maximum(baseline, 0.5 / CHAT_SMOOTH) / CHAT_SMOOTH)   # sd of a 5 s mean count
+    return (excess - med) / np.maximum(poisson, mad)
 
 
 _SCENE_RE = re.compile(r"pts_time:([0-9.]+)")

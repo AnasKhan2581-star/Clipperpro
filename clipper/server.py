@@ -250,6 +250,33 @@ def edit_clip(job_id: str, clip: str, edit: ClipEdit):
     return data
 
 
+class Trim(BaseModel):
+    start: float = Field(..., ge=0)     # seconds on the source timeline (VOD time; stream time for live clips)
+    end: float = Field(..., gt=0)
+
+
+@app.post("/api/jobs/{job_id}/clips/{clip}/trim")
+def trim_clip(job_id: str, clip: str, body: Trim):
+    from .pipeline import MAX_TRIM, MIN_TRIM
+
+    if not CLIP_RE.match(clip):
+        raise HTTPException(400, "bad clip name")
+    job = store.get(job_id)
+    if not job:
+        raise HTTPException(404, "job not found")
+    if job["status"] in ("running", "queued"):
+        raise HTTPException(400, "This job is busy; try again when it's done.")
+    try:
+        read_clip(_job_dir(job_id), clip)
+    except FileNotFoundError:
+        raise HTTPException(404, "clip not found")
+    length = body.end - body.start
+    if not MIN_TRIM <= length <= MAX_TRIM:
+        raise HTTPException(400, f"A clip must be {MIN_TRIM:.0f}–{MAX_TRIM:.0f} seconds long (you chose {length:.1f} s).")
+    worker.submit_trim(job_id, clip, body.start, body.end)
+    return {"ok": True}
+
+
 @app.post("/api/jobs/{job_id}/clips/{clip}/youtube")
 def upload_clip(job_id: str, clip: str):
     if not CLIP_RE.match(clip):

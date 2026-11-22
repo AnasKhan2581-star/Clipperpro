@@ -38,6 +38,9 @@ class Store:
               video_id TEXT, url TEXT, error TEXT, created_at REAL);
             """
         )
+        # a re-cut interrupted by a restart: the job's clips are still fine
+        self._db.execute("UPDATE jobs SET status='done', message='Re-cut interrupted by restart; try again' "
+                         "WHERE status='running' AND stage='trim'")
         # jobs interrupted by a restart can't resume mid-render; mark them failed
         self._db.execute("UPDATE jobs SET status='failed', error='Interrupted by restart' "
                          "WHERE status IN ('running')")
@@ -129,13 +132,47 @@ class Worker:
     def job_dir(self, job_id: str) -> Path:
         return JOBS_DIR / job_id
 
+    def submit_trim(self, job_id: str, clip: str, start: float, end: float) -> None:
+        """Queue a re-cut of one clip (source-timeline seconds). Runs in the job queue, one at a time."""
+        self.store.update(job_id, message=f"{clip}: re-cut queued…")
+        self.q.put(("trim", job_id, clip, float(start), float(end)))
+
     def _loop(self) -> None:
         while True:
-            job_id = self.q.get()
+            item = self.q.get()
             try:
-                self._run(job_id)
+                if isinstance(item, tuple):
+                    self._trim(*item[1:])
+                else:
+                    self._run(item)
             except Exception:  # never let the worker thread die
-                log.exception("worker crash on %s", job_id)
+                log.exception("worker crash on %s", item)
+
+    def _trim(self, job_id: str, clip: str, start: float, end: float) -> None:
+        job = self.store.get(job_id)
+        if not job:
+            return
+        prev_logs = job.get("logs") or []
+        logs: list[str] = []
+
+        def on_progress(stage: str, pct: float, msg: str) -> None:
+            if msg:
+                self.store.update(job_id, message=f"{clip}: {msg}", logs=json.dumps((prev_logs + logs)[-200:]))
+
+        self.store.update(job_id, status="running", stage="trim", cancel=0)
+        reporter = pipeline.Reporter(on_progress=on_progress, logs=logs,
+                                     is_cancelled=lambda: bool((self.store.get(job_id) or {}).get("cancel")))
+        try:
+            pipeline.rerender_clip(self.job_dir(job_id), clip, start, end, reporter)
+            self.store.update(job_id, status="done", stage="done", progress=1.0, cancel=0,
+                              message=f"{clip} re-cut to {pipeline._fmt(start)}–{pipeline._fmt(end)}",
+                              logs=json.dumps((prev_logs + logs)[-200:]))
+        except Exception as exc:  # the job's other clips are fine: keep it "done", say what failed
+            log.error("trim %s/%s failed: %s", job_id, clip, traceback.format_exc())
+            msg = "cancelled" if isinstance(exc, pipeline.Cancelled) else str(exc)[:300]
+            self.store.update(job_id, status="done", stage="done", progress=1.0, cancel=0,
+                              message=f"✘ {clip} re-cut failed: {msg}",
+                              logs=json.dumps((prev_logs + logs + [f"ERROR: {msg}"])[-200:]))
 
     def _run(self, job_id: str) -> None:
         job = self.store.get(job_id)
@@ -187,6 +224,9 @@ class Worker:
             src = Path(job["source"])
             if opts.get("delete_upload_after") and src.exists() and DATA_DIR in src.resolve().parents:
                 src.unlink(missing_ok=True)
+            chat = (opts.get("live") or {}).get("chat_file")
+            if chat and DATA_DIR in Path(chat).resolve().parents:
+                Path(chat).unlink(missing_ok=True)
 
     # uploads ------------------------------------------------------------
     def queue_upload(self, job_id: str, clip_name: str) -> int:

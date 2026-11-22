@@ -21,7 +21,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
-from . import ingest
+import json
+import os
+import statistics
+
+from . import ingest, livechat
 from .config import load_streamers, match_streamer
 
 log = logging.getLogger(__name__)
@@ -37,6 +41,7 @@ DEFAULTS = {
     "min_final_seconds": 120, # a leftover shorter than this at the end isn't clipped
     "poll_seconds": 10,
     "max_restarts": 20,       # give up after this many recorder restarts in a row without new footage
+    "chat": True,             # record the live chat too (YouTube, Twitch): the strongest hype signal
 }
 
 
@@ -49,6 +54,7 @@ class Segment:
     path: Path
     start: float      # seconds into the stream
     duration: float
+    wall_end: float = 0.0   # wall-clock time the recorder finished writing it (maps chat to stream time)
 
     @property
     def end(self) -> float:
@@ -224,6 +230,10 @@ class LiveSession:
         self._proc: subprocess.Popen | None = None
         self._errlog: Path = self.seg_dir / "recorder.log"
         self.info: dict = {}
+        self.chat: livechat.ChatRecorder | None = None
+
+    def start_chat(self) -> livechat.ChatRecorder | None:   # network hook (tests replace it)
+        return livechat.recorder_for(self.info, self.url, self.workdir / "chat", self.settings)
 
     # network hooks (tests replace these) --------------------------------------
     def probe(self) -> dict:
@@ -245,6 +255,17 @@ class LiveSession:
         self.on_info(self.info)
         self.log(f"🔴 “{self.info.get('title')}” by {self.info.get('uploader')}: clipping every "
                  f"{self.cfg['chunk_minutes']} min, {self.cfg['clips_per_chunk']} clips per chunk")
+        if self.cfg.get("chat", True):
+            try:
+                self.chat = self.start_chat()
+                if self.chat:
+                    self.chat.start()
+                    self.log("Recording the live chat too (used to find hype moments)")
+                else:
+                    self.log("Live chat isn't supported for this site; using audio signals only")
+            except Exception as exc:   # chat is a bonus; never fail the session for it
+                self.chat = None
+                self.log(f"⚠ Live chat unavailable ({exc}); using audio signals only")
         seg_s = float(self.cfg["segment_seconds"])
         run, restarts, ended = 0, 0, False
         newest_end, last_new = float("-inf"), time.time()
@@ -285,6 +306,8 @@ class LiveSession:
                 self._sleep(float(self.cfg["poll_seconds"]))
         finally:
             self._stop_recorder()
+            if self.chat:
+                self.chat.stop()      # messages already collected are kept for the last chunk
         self._cut(self._segments(include_open=True), final=True)
         self._cleanup(keep_from=None)
         msg = f"{'Stream ended' if ended else 'Stopped'}: {self.chunks} chunk(s) sent for clipping"
@@ -332,16 +355,42 @@ class LiveSession:
         for f in files:
             if f not in self._probed:
                 try:
-                    self._probed[f] = probe_segment(f)
-                except LiveError:
+                    self._probed[f] = (*probe_segment(f), os.stat(f).st_mtime)   # closed: mtime = when it ended
+                except (LiveError, OSError):
                     continue
-            start, dur = self._probed[f]
+            start, dur, wall = self._probed[f]
             if dur > 0.5:
-                segs.append(Segment(f, start, dur))
+                segs.append(Segment(f, start, dur, wall))
         if segs and self.clock_shift is None:
             self.clock_shift = self._calibrate(segs[-1])
         shift = self.clock_shift or 0.0
-        return [Segment(s.path, s.start + shift, s.duration) for s in segs]
+        return [Segment(s.path, s.start + shift, s.duration, s.wall_end) for s in segs]
+
+    def _wall_shift(self, segs: list[Segment]) -> float | None:
+        """wall-clock time minus stream time, from when segments finished writing.
+
+        The first segment of each recorder run is skipped: ffmpeg catches up on a few
+        seconds of backlog there, faster than real time."""
+        runs: dict[str, list[Segment]] = {}
+        for s in segs:
+            runs.setdefault(s.path.name.split("_")[0], []).append(s)
+        diffs = [s.wall_end - s.end for run in runs.values() for s in run[1:] if s.wall_end]
+        if not diffs:
+            diffs = [s.wall_end - s.end for s in segs if s.wall_end]
+        return statistics.median(diffs) if diffs else None
+
+    def _chat_file(self, plan: ChunkPlan, all_segs: list[Segment], chunk: Path) -> str | None:
+        """Write the chunk's chat message times (seconds into the chunk) next to it."""
+        if not self.chat:
+            return None
+        shift = self._wall_shift(all_segs)
+        if shift is None:
+            return None
+        walls = self.chat.times_between(plan.offset + shift, plan.end + shift)
+        out = chunk.with_suffix(".chat.json")
+        out.write_text(json.dumps([round(w - shift - plan.offset, 2) for w in walls]))
+        self.chat.forget_before(plan.next_cursor - float(self.cfg["context_seconds"]) + shift - 60)
+        return str(out)
 
     def _calibrate(self, newest: Segment) -> float:
         """YouTube's stream clock = time since the stream started. Other hosts use an arbitrary
@@ -359,8 +408,14 @@ class LiveSession:
             self.status("🔴 Recording… waiting for the first minute")
             return
         nxt = (self.cursor if self.cursor is not None else segs[0].start) + float(self.cfg["chunk_minutes"]) * 60 + TAIL
+        if (self.chat and not getattr(self, "_chat_warned", False)
+                and isinstance(self.chat, livechat.YouTubeChat) and not self.chat.alive()):
+            self._chat_warned = True   # yt-dlp ends at once when chat is off for this stream
+            self.log(f"⚠ Live chat stopped after {self.chat.count:,} messages (chat may be disabled "
+                     "for this stream); clipping continues with audio signals")
+        chat = f" · chat {self.chat.count:,} msgs" if self.chat else ""
         self.status(f"🔴 Recording · stream at {fmt(segs[-1].end)} · {self.chunks} chunk(s) sent · "
-                    f"next chunk after {fmt(nxt)}")
+                    f"next chunk after {fmt(nxt)}{chat}")
 
     def _cut(self, segs: list[Segment], final: bool) -> None:
         while True:
@@ -375,13 +430,17 @@ class LiveSession:
             except LiveError as exc:
                 self.log(f"⚠ Skipped {fmt(a)}–{fmt(b)}: {exc}")
             else:
-                self.log(f"Chunk {self.chunks}: moments from {fmt(a)}–{fmt(b)} sent for clipping")
+                chat_file = self._chat_file(plan, segs, path)
+                n_chat = len(json.loads(Path(chat_file).read_text())) if chat_file else 0
+                self.log(f"Chunk {self.chunks}: moments from {fmt(a)}–{fmt(b)} sent for clipping"
+                         + (f" ({n_chat:,} chat messages)" if chat_file else ""))
                 self.submit(path, {
                     "info": {k: v for k, v in self.info.items() if k not in ("is_live", "duration")},
                     "offset": round(plan.offset, 3),
                     "peak_from": round(plan.peak_from, 3),
                     "peak_to": None if plan.peak_to is None else round(plan.peak_to, 3),
                     "label": f"{fmt(a)}–{fmt(b)}",
+                    "chat_file": chat_file,
                 })
             self.cursor = plan.next_cursor
             self._cleanup(keep_from=self.cursor - float(self.cfg["context_seconds"]))

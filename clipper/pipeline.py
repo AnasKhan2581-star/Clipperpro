@@ -114,7 +114,12 @@ def run(source: str, outdir: Path, overrides: dict | None = None, reporter: Repo
     loud_z, rise_z = analysis.loudness_signals(db, det.get("baseline_seconds", 300))
     signals = {"loudness": loud_z, "loudness_rise": rise_z}
 
-    if not info.get("is_local"):
+    if live.get("chat_file") and Path(live["chat_file"]).exists():   # chat recorded while the stream was live
+        chat_times = json.loads(Path(live["chat_file"]).read_text())
+        if chat_times:
+            signals["chat"] = analysis.chat_signal(chat_times, len(db))
+        rep("analyze", 0.38, f"Live chat: {len(chat_times):,} messages")
+    elif not info.get("is_local"):
         rep("analyze", 0.36, "Fetching chat replay (if available)…")
         chat_times = ingest.fetch_chat_times(source, info, work, settings)
         if chat_times:
@@ -187,21 +192,9 @@ def run(source: str, outdir: Path, overrides: dict | None = None, reporter: Repo
                 local_video = ingest.download_full(source, work, settings)
         if local_video is not None:
             src, offset = local_video, c.start
-        ass_path = None
-        credit = None
-        if rcfg.get("credit_overlay", True):
-            credit = preset.get("credit_label") or metadata.credit_label(entry.get("name", ""), entry.get("credit_url"))
-        cta = preset.get("cta")
-        if (cap_cfg.get("enabled", True) and c.words) or credit or cta:
-            words = c.words if cap_cfg.get("enabled", True) else []
-            ass = captions.build_ass(words, c.start, c.end, cap_cfg, width=width, height=height,
-                                     font=rcfg.get("font", "Anton"), credit=credit, cta=cta,
-                                     cta_seconds=float(preset.get("cta_seconds", 3.5)))
-            ass_path = captions.write_ass(clips_dir / f"{name}.ass", ass)
         rep("render", base + 0.1 / len(chosen), f"Rendering {name} ({rcfg['layout']}, {c.duration:.0f}s)…")
-        out = clips_dir / f"{name}.mp4"
-        render.render_clip(src, offset, c.duration, out, rcfg, ass_path)
-        thumb = render.thumbnail(out, min(c.peak - c.start, c.duration - 0.5), clips_dir / f"{name}.jpg")
+        thumb = _burn(src, offset, c.start, c.end, c.words, clips_dir, name, settings, entry,
+                      thumb_at=min(c.peak - c.start, c.duration - 0.5))
         meta = metadata.build({"hook": c.hook, "start": c.start + stream_offset}, info, entry, settings["metadata"])
         clip = {
             "name": name,
@@ -224,6 +217,8 @@ def run(source: str, outdir: Path, overrides: dict | None = None, reporter: Repo
         "info": {k: v for k, v in info.items() if k != "path"},
         "streamer": entry,
         "settings": settings,
+        "stream_offset": stream_offset,      # clip times + this = time in the source stream/VOD
+        "is_live_chunk": bool(live),
         "clips": results,
         "warnings": warnings,
         "chart": {
@@ -237,6 +232,104 @@ def run(source: str, outdir: Path, overrides: dict | None = None, reporter: Repo
     shutil.rmtree(work, ignore_errors=True)
     rep("done", 1.0, f"Done — {len(results)} clips ready" + (f" ({len(warnings)} warning)" if warnings else ""))
     return manifest
+
+
+def _burn(src: Path, offset: float, start: float, end: float, words: list[dict], clips_dir: Path, name: str,
+          settings: dict, entry: dict, thumb_at: float) -> Path | None:
+    """Captions + credit + CTA, render `src[offset : offset + (end - start)]`, thumbnail.
+
+    `words`, `start` and `end` share one timeline (the one the words were transcribed on)."""
+    rcfg, cap_cfg = settings["render"], settings["captions"]
+    preset = entry.get("preset") or {}
+    width, height = render.output_size(rcfg["layout"])
+    credit = None
+    if rcfg.get("credit_overlay", True):
+        credit = preset.get("credit_label") or metadata.credit_label(entry.get("name", ""), entry.get("credit_url"))
+    cta = preset.get("cta")
+    ass_path = None
+    if (cap_cfg.get("enabled", True) and words) or credit or cta:
+        ass = captions.build_ass(words if cap_cfg.get("enabled", True) else [], start, end, cap_cfg,
+                                 width=width, height=height, font=rcfg.get("font", "Anton"), credit=credit,
+                                 cta=cta, cta_seconds=float(preset.get("cta_seconds", 3.5)))
+        ass_path = captions.write_ass(clips_dir / f"{name}.ass", ass)
+    out = clips_dir / f"{name}.mp4"
+    render.render_clip(src, offset, end - start, out, rcfg, ass_path)
+    return render.thumbnail(out, max(0.0, thumb_at), clips_dir / f"{name}.jpg")
+
+
+MIN_TRIM, MAX_TRIM = 3.0, 180.0   # YouTube Shorts can be up to 3 minutes
+
+
+def rerender_clip(job_dir: Path, name: str, start: float, end: float, reporter: Reporter | None = None) -> dict:
+    """Cut one clip again at [start, end] on the SOURCE timeline (VOD time; stream time for live clips).
+
+    Downloads just that section (+ a few seconds of lead-in for Whisper), re-transcribes it so the
+    captions match, and re-renders with the job's layout, credit and CTA. User edits to the title
+    are kept; the source link in the description moves to the new start."""
+    rep = reporter or Reporter()
+    if not MIN_TRIM <= end - start <= MAX_TRIM:
+        raise PipelineError(f"A clip must be {MIN_TRIM:.0f}–{MAX_TRIM:.0f} seconds long (got {end - start:.1f} s).")
+    if start < 0:
+        raise PipelineError("Start can't be before the beginning of the video.")
+    manifest = json.loads((job_dir / "manifest.json").read_text())
+    clips_dir = job_dir / "clips"
+    clip = json.loads((clips_dir / f"{name}.json").read_text())
+    settings, info, entry = manifest["settings"], manifest["info"], manifest.get("streamer") or {}
+    job_offset = float(manifest.get("stream_offset", clip.get("stream_start", clip["start"]) - clip["start"]) or 0)
+    source = manifest["source"]
+    work = job_dir / f"work_{name}"
+    work.mkdir(parents=True, exist_ok=True)
+    try:
+        local = None if ingest.is_url(source) else Path(source)
+        if local is not None and local.exists():           # the original file is still here
+            src, base = local, job_offset                  # file time = source time - job_offset
+        else:
+            remote = source if ingest.is_url(source) else info.get("webpage_url")
+            if not remote:
+                raise PipelineError("The uploaded file was deleted after clipping. Upload it again to trim this clip.")
+            ingest.probe(remote, settings)   # clear error if a live stream hasn't become a VOD yet
+            lead = 8.0
+            sec0 = max(0.0, start - lead)
+            rep("render", 0.1, f"Downloading {_fmt(start)}–{_fmt(end)}…")
+            src = ingest.download_section(remote, sec0, end + 1.0, work / "src.mp4", settings)
+            base = sec0
+        s, e = start - base, end - base                   # times inside `src`
+        words: list[dict] = []
+        cap_cfg = settings["captions"]
+        warning = None
+        if cap_cfg.get("enabled", True):
+            rep("transcribe", 0.4, "Transcribing for captions…")
+            try:
+                segs = _transcribe(src, max(0.0, s - 4.0), e + 0.5, cap_cfg)
+                words = [w for sg in segs for w in sg.get("words", []) if s <= w["start"] < e]
+            except Cancelled:
+                raise
+            except Exception as exc:
+                warning = f"captions unavailable ({exc})"
+        rep("render", 0.7, f"Rendering {name} ({e - s:.0f}s)…")
+        thumb = _burn(src, s, s, e, words, clips_dir, name, settings, entry, thumb_at=min(3.0, (e - s) / 2))
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+    old_link = clip.get("source_link") or ""
+    new_link = metadata.timestamped_url(info.get("webpage_url"), start)
+    clip.update({
+        "start": round(start - job_offset, 2), "end": round(end - job_offset, 2), "duration": round(end - start, 2),
+        "transcript": " ".join(w["word"] for w in words) if cap_cfg.get("enabled", True) else clip.get("transcript", ""),
+        "source_link": new_link,
+        "thumbnail": f"clips/{name}.jpg" if thumb else clip.get("thumbnail"),
+        "trimmed": True,
+        "rendered_at": time.time(),
+    })
+    if manifest.get("is_live_chunk") or "stream_start" in clip:
+        clip["stream_start"] = round(start, 2)
+    if old_link and old_link in (clip.get("description") or ""):
+        clip["description"] = clip["description"].replace(old_link, new_link)
+    clip.pop("warning", None)
+    if warning:
+        clip["warning"] = warning
+    (clips_dir / f"{name}.json").write_text(json.dumps(clip, indent=2, ensure_ascii=False))
+    rep("done", 1.0, f"{name} re-cut to {_fmt(start)}–{_fmt(end)} ({end - start:.0f}s)")
+    return clip
 
 
 def _transcribe(media: Path, start: float, end: float, cap_cfg: dict) -> list[dict]:

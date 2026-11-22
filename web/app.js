@@ -13,6 +13,13 @@ async function api(path, opts = {}) {
   return data;
 }
 
+// "1:02:03" / "2:03" / "123.5" -> seconds (NaN if unreadable)
+const parseTime = (v) => {
+  v = String(v || "").trim(); if (!v) return NaN;
+  if (!v.includes(":")) return Number(v);
+  const parts = v.split(":").map(Number); if (parts.some((p) => !Number.isFinite(p) || p < 0)) return NaN;
+  return parts.reduce((acc, p) => acc * 60 + p, 0);
+};
 const fmtTime = (s) => { s = Math.max(0, Math.round(s)); const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), x = s % 60; return (h ? h + ":" + String(m).padStart(2, "0") : m) + ":" + String(x).padStart(2, "0"); };
 const ago = (t) => { const d = Date.now() / 1000 - t; if (d < 60) return "just now"; if (d < 3600) return Math.floor(d / 60) + "m ago"; if (d < 86400) return Math.floor(d / 3600) + "h ago"; return Math.floor(d / 86400) + "d ago"; };
 
@@ -221,7 +228,7 @@ function renderChunks(session) {
 function renderClips(j) {
   const m = j.manifest, wrap = $("#clips");
   const uploads = j.uploads || [];
-  const key = JSON.stringify([j.id, m && m.clips.map((c) => c.name)]);
+  const key = JSON.stringify([j.id, m && m.clips.map((c) => [c.name, c.rendered_at || 0])]);
   if (!m) { wrap.innerHTML = ""; lastRenderedClips = ""; return; }
   if (key !== lastRenderedClips) {
     lastRenderedClips = key; wrap.innerHTML = "";
@@ -230,7 +237,9 @@ function renderClips(j) {
       const el = $("#clip-tpl").content.firstElementChild.cloneNode(true);
       el.dataset.clip = c.name; if (land) el.classList.add("land");
       const base = `media/${j.id}/clips/`;
-      const v = $("video", el); v.src = base + c.name + ".mp4"; if (c.thumbnail) v.poster = base + c.name + ".jpg";
+      const ver = c.rendered_at ? `?v=${Math.round(c.rendered_at)}` : "";   // new file after a re-cut
+      const v = $("video", el); v.src = base + c.name + ".mp4" + ver; if (c.thumbnail) v.poster = base + c.name + ".jpg" + ver;
+      bindTrim(j, c, el, v);
       $(".score", el).textContent = `🔥 ${c.score.toFixed(1)} · ${fmtTime(c.stream_start ?? c.start)} · ${Math.round(c.duration)}s`;
       const src = $(".src", el); if (c.source_link) src.href = c.source_link; else src.remove();
       $(".c-title", el).value = c.title; $(".c-desc", el).value = c.description;
@@ -254,6 +263,36 @@ function renderClips(j) {
     else if (u.status === "failed") setUp(el, "✘ " + u.error, "err");
     else setUp(el, u.status === "uploading" ? "Uploading to YouTube…" : "Queued for upload…", "");
   }
+}
+
+function bindTrim(j, c, el, video) {
+  const t0 = c.stream_start ?? c.start;            // clip start on the stream/VOD timeline
+  const startI = $(".t-start", el), endI = $(".t-end", el), len = $(".t-len", el);
+  startI.value = fmtTime(t0); endI.value = fmtTime(t0 + c.duration);
+  const check = () => {
+    const s = parseTime(startI.value), e = parseTime(endI.value), d = e - s;
+    const ok = Number.isFinite(d) && d >= 3 && d <= 180;
+    len.textContent = Number.isFinite(d) ? `${Math.round(d)} s${ok ? "" : " (must be 3–180 s)"}` : "Use h:mm:ss";
+    len.classList.toggle("err", !ok); $(".re-cut", el).disabled = !ok;
+    return ok ? [s, e] : null;
+  };
+  [startI, endI].forEach((i) => i.addEventListener("input", check));
+  $$(".nudge .chip", el).forEach((b) => b.addEventListener("click", () => {
+    const inp = b.dataset.k === "start" ? startI : endI, v = parseTime(inp.value);
+    if (Number.isFinite(v)) { inp.value = fmtTime(Math.max(0, v + Number(b.dataset.d))); check(); }
+  }));
+  $(".set-start", el).onclick = () => { startI.value = fmtTime(t0 + video.currentTime); check(); };
+  $(".set-end", el).onclick = () => { endI.value = fmtTime(t0 + video.currentTime); check(); };
+  $(".re-cut", el).onclick = async () => {
+    const r = check(); if (!r) return;
+    await saveClip(j.id, c.name, el, true);   // keep title/description edits
+    try {
+      await api(`api/jobs/${j.id}/clips/${c.name}/trim`, { method: "POST", body: JSON.stringify({ start: r[0], end: r[1] }) });
+      setUp(el, `Re-cutting ${fmtTime(r[0])}–${fmtTime(r[1])}… (about a minute)`, ""); tick();
+    } catch (e) { setUp(el, e.message, "err"); }
+  };
+  if (c.warning) setUp(el, "⚠ " + c.warning, "err");
+  check();
 }
 
 function setUp(el, text, cls, url) {

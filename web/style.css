@@ -137,6 +137,14 @@ form > label, .grid2 { margin-top: 14px; }
 .live-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-top: 10px; }
 .live-row input[type=number] { width: 72px; margin: 0; padding: 6px 8px; }
 .bar.live { width: 100% !important; opacity: .5; }
+.trim { margin: 4px 0 8px; border: 1px solid var(--line); border-radius: 10px; padding: 6px 10px; }
+.trim summary { cursor: pointer; color: var(--text); }
+.trim-grid { display: grid; grid-template-columns: 1fr auto; gap: 6px 8px; align-items: end; margin-top: 6px; }
+.trim-grid input { margin: 2px 0 0; padding: 6px 8px; font-variant-numeric: tabular-nums; }
+.nudge { display: flex; gap: 4px; }
+.trim-actions { display: flex; gap: 6px; flex-wrap: wrap; margin: 8px 0; }
+.trim-actions .btn, .trim .chip { font-size: 12px; padding: 5px 8px; }
+.t-len.err { color: var(--red); }
 .live-chunks { margin-top: 14px; }
 .live-chunks h3 { margin: 0 0 8px; }
 .empty { color: var(--muted); text-align: center; padding: 30px 0 10px; margin: 0; }

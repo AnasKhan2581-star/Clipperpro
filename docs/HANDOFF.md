@@ -102,6 +102,24 @@ Web UI saves keep existing presets.
 - The session itself is a job row (`options.mode = "live"`, run by `LiveManager` on its own thread, never queued);
   chunk jobs carry `options.live_session`. A quiet chunk ends as "done" with no clips (`NoMoments`).
 
+**Trim / re-cut** (added 2026-11-22): `pipeline.rerender_clip()` re-cuts one clip at new source-timeline times
+(3–180 s). It downloads the section (VOD URL, or `info.webpage_url` for live chunks, which is the replay once the
+stream ends), re-transcribes, and re-renders through the shared `_burn()`. It runs as a `("trim", …)` item in the
+worker queue with stage `trim`; a restart puts such a job back to "done". API: `POST /api/jobs/{id}/clips/{clip}/trim`.
+
+**Live chat** (`livechat.py`, added 2026-11-22): YouTube via `yt-dlp --write-subs live_chat` (it follows the chat live;
+it ends at once if chat is disabled), Twitch via anonymous IRC. Message wall times map to stream time with the
+median (segment mtime − segment end), skipping each run's first segment (catch-up burst). Chat is written per chunk as
+`chunk_NNN.chat.json` and used by the pipeline (`live.chat_file`).
+
+**Hype-detection findings (2026-11-21, Tomo VODs; data deleted afterwards):**
+- Tomo's chat is small: 8–14 messages/min. "Most replayed" heatmaps don't exist for his live replays.
+- Without chat, audio picks hit a chat-spike window 5–6 times in 15 (random ≈ 2). Facecam motion did not help
+  (3–5 in 15), and cutscenes are **not** letterboxed in GTA VI captures (0.1% of frames), so both were dropped.
+- Chat lag could not be estimated (correlations ≈ 0 at this chat volume); `CHAT_LAG` stays 4 s.
+- Change made: the chat score now uses at least the Poisson noise of the count, so a few random messages in a quiet
+  chat no longer look like a spike.
+
 Other parts:
 - `jobs.py`: SQLite store, worker threads, `LiveManager`
 - `server.py`: REST API and static UI from `web/`; optional `CLIPPER_PASSWORD` basic auth
@@ -111,7 +129,7 @@ Other parts:
 GitHub Actions:
 - `clip.yml`: manual "Clip a VOD" run
 - `watch.yml`: every 3 hours
-- `ci.yml`: pytest (32 tests) + Docker build
+- `ci.yml`: pytest (43 tests) + Docker build
 - `e2e.yml`:
   - real Whisper on espeak speech
   - URL section download + fallback via a local HTTP server
