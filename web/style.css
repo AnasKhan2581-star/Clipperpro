@@ -145,6 +145,9 @@ form > label, .grid2 { margin-top: 14px; }
 .trim-actions { display: flex; gap: 6px; flex-wrap: wrap; margin: 8px 0; }
 .trim-actions .btn, .trim .chip { font-size: 12px; padding: 5px 8px; }
 .t-len.err { color: var(--red); }
+.clip-actions + .clip-actions { margin-top: 6px; }
+.ig-connect { margin-top: 6px; }
+.ig-connect input { font-family: inherit; }
 .live-chunks { margin-top: 14px; }
 .live-chunks h3 { margin: 0 0 8px; }
 .empty { color: var(--muted); text-align: center; padding: 30px 0 10px; margin: 0; }
@@ -173,9 +176,10 @@ canvas { width: 100%; display: block; margin-top: 8px; border-radius: 10px; back
 .clip-actions { display: flex; gap: 6px; }
 .clip-actions .btn { flex: 1; padding: 8px 6px; }
 .transcript { margin: 0; max-height: 60px; overflow: auto; font-style: italic; }
-.up-status { margin: 0; min-height: 18px; }
-.up-status.ok { color: var(--teal); }
-.up-status.err { color: var(--red); }
+.up-status, .ig-status { margin: 0; min-height: 18px; }
+.up-status.ok, .ig-status.ok, #ig-connect-msg.ok { color: var(--teal); }
+.up-status.err, .ig-status.err, #ig-connect-msg.err { color: var(--red); }
+.ig-status:empty { min-height: 0; }
 
 .logs { margin-top: 18px; }
 .logs summary { cursor: pointer; color: var(--muted); font-size: 13px; }

@@ -127,6 +127,14 @@ Limits: it needs the app running for the whole stream,
 and it uses about 3–4 GB/hour of bandwidth at 1080p. The `live:` section of `config/settings.yaml` holds the knobs.
 CLI: `python -m clipper live <url> --chunk-minutes 20 --clips 2 --layout facecam` (Ctrl+C stops it and clips the last part).
 
+## Instagram Reels upload
+
+Each reel has **Instagram ▶** (publishes it as a public Reel through Meta's official Graph API: resumable upload
+of the local MP4, wait for processing, publish) and **Copy caption** (for posting by hand). The caption is the
+clip's description, trimmed to Instagram's 2,200 characters and 30 hashtags. One-time setup (a professional
+Instagram account linked to a Facebook Page, a Meta developer app, one token): [docs/INSTAGRAM_SETUP.md](docs/INSTAGRAM_SETUP.md).
+The app swaps the token for a Page token that doesn't expire and keeps it in `data/instagram.json`.
+
 ## Trim / extend a clip
 
 Every clip card has **✂ Trim / extend**. Set a new start and end on the stream's own timeline (h:mm:ss), nudge by ±5 s,

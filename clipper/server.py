@@ -15,7 +15,7 @@ from fastapi.concurrency import run_in_threadpool
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from . import __version__, youtube
+from . import __version__, instagram, youtube
 from .config import (DATA_DIR, LAYOUTS, ROOT, WHISPER_MODELS, load_settings, load_streamers,
                      save_streamers)
 from .ingest import VIDEO_EXTS, is_url
@@ -143,6 +143,8 @@ def config():
         },
         "youtube": {**youtube.status(), "uploads_24h": store.uploads_last_24h(),
                     "daily_cap": s["youtube"].get("daily_upload_cap", 6)},
+        "instagram": {**instagram.status(), "uploads_24h": store.uploads_last_24h("instagram"),
+                      "daily_cap": (s.get("instagram") or {}).get("daily_upload_cap", 25)},
         "password_protected": bool(PASSWORD),
     }
 
@@ -288,6 +290,41 @@ def upload_clip(job_id: str, clip: str):
     except FileNotFoundError:
         raise HTTPException(404, "clip not found")
     return {"upload_id": worker.queue_upload(job_id, clip)}
+
+
+@app.post("/api/jobs/{job_id}/clips/{clip}/instagram")
+def upload_clip_instagram(job_id: str, clip: str):
+    if not CLIP_RE.match(clip):
+        raise HTTPException(400, "bad clip name")
+    if not instagram.status()["connected"]:
+        raise HTTPException(400, "Instagram is not connected. Open Settings → Instagram (see docs/INSTAGRAM_SETUP.md).")
+    try:
+        data = read_clip(_job_dir(job_id), clip)
+    except FileNotFoundError:
+        raise HTTPException(404, "clip not found")
+    if not 3 <= float(data.get("duration") or 0) <= 900:
+        raise HTTPException(400, "Instagram Reels must be 3 s to 15 min long.")
+    return {"upload_id": worker.queue_upload(job_id, clip, "instagram")}
+
+
+class InstagramConnect(BaseModel):
+    app_id: str = Field(..., min_length=3, max_length=64)
+    app_secret: str = Field(..., min_length=8, max_length=128)
+    user_token: str = Field(..., min_length=20, max_length=2048)
+
+
+@app.post("/api/instagram/connect")
+def instagram_connect(body: InstagramConnect):
+    try:
+        return instagram.connect(body.app_id, body.app_secret, body.user_token)
+    except instagram.InstagramError as exc:
+        raise HTTPException(400, str(exc))
+
+
+@app.delete("/api/instagram")
+def instagram_disconnect():
+    instagram.disconnect()
+    return instagram.status()
 
 
 @app.get("/api/streamers")

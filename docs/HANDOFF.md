@@ -112,6 +112,14 @@ it ends at once if chat is disabled), Twitch via anonymous IRC. Message wall tim
 median (segment mtime − segment end), skipping each run's first segment (catch-up burst). Chat is written per chunk as
 `chunk_NNN.chat.json` and used by the pipeline (`live.chat_file`).
 
+**Instagram** (`instagram.py`, added 2026-11-24): Graph API "with Facebook Login", the only route Meta documents
+for uploading a local file (resumable: POST /{ig}/media `upload_type=resumable` → POST rupload.facebook.com/ig-api-upload/v27.0/{container}
+with `Authorization: OAuth`, `offset`, `file_size` → poll `status_code` → /media_publish). The simpler "Instagram Login"
+API needs a public `video_url`, so it isn't used. Connect = Graph API Explorer user token → `fb_exchange_token`
+(long-lived) → `/me/accounts` Page token (doesn't expire) + `instagram_business_account`; saved in `data/instagram.json`.
+Uploads table has a `platform` column; caps are per platform. **Not yet tried with a real account** (owner's clip account
+doesn't exist yet); tested against a fake Graph API. Setup guide: `docs/INSTAGRAM_SETUP.md`.
+
 **Hype-detection findings (2026-11-21, Tomo VODs; data deleted afterwards):**
 - Tomo's chat is small: 8–14 messages/min. "Most replayed" heatmaps don't exist for his live replays.
 - Without chat, audio picks hit a chat-spike window 5–6 times in 15 (random ≈ 2). Facecam motion did not help
@@ -129,7 +137,7 @@ Other parts:
 GitHub Actions:
 - `clip.yml`: manual "Clip a VOD" run
 - `watch.yml`: every 3 hours
-- `ci.yml`: pytest (43 tests) + Docker build
+- `ci.yml`: pytest (49 tests) + Docker build
 - `e2e.yml`:
   - real Whisper on espeak speech
   - URL section download + fallback via a local HTTP server

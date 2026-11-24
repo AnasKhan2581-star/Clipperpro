@@ -74,7 +74,9 @@ The first time takes about 5 minutes. After that it starts in seconds.
 2. Click **Streamers & settings**, add the streamer (name, their channel link, where their clip permission comes from) and click **Save**.
 3. Paste a VOD link, pick a layout and click **Find highlights & render**.
 4. Watch the progress bar. When it's done, preview each clip, edit the title and click **Download** or **Upload ▶**.
-5. Clip too short or starts too late? Open **✂ Trim / extend** on the clip, set the start and end (or pause the video and
+5. For Instagram: click **Instagram ▶** (after the one-time [Instagram setup](INSTAGRAM_SETUP.md)), or
+   **Download** + **Copy caption** and post it from your phone.
+6. Clip too short or starts too late? Open **✂ Trim / extend** on the clip, set the start and end (or pause the video and
    click **Start/End at playhead**), then **Re-cut clip**. The new version appears in about a minute.
 
 **Stream still going?** Paste the live stream's link, tick **🔴 Clip while live** and click **Start live clipping**.

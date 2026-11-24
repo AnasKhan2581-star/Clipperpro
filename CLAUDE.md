@@ -17,7 +17,7 @@ descriptions follow, then an optional YouTube upload. A FastAPI web UI runs on :
 
 ## Commands
 - Run the app: `docker compose up -d --build`, then open http://localhost:8000
-- Tests: `pip install -r requirements-dev.txt && python -m pytest -q` (43 tests). No ffmpeg on the owner's Windows host: run them in a throwaway container, e.g. `docker compose run --rm --no-deps -T -v "D:/Clipperpro-main:/src" -w /src --entrypoint sh clipper -c "pip install -q pytest httpx; python -m pytest -q"`
+- Tests: `pip install -r requirements-dev.txt && python -m pytest -q` (49 tests). No ffmpeg on the owner's Windows host: run them in a throwaway container, e.g. `docker compose run --rm --no-deps -T -v "D:/Clipperpro-main:/src" -w /src --entrypoint sh clipper -c "pip install -q pytest httpx; python -m pytest -q"`
 - CLI: `python -m clipper run <url|file> --clips 5 --layout facecam`
 - Live: `python -m clipper live <url> --chunk-minutes 20 --clips 2` (or tick "Clip while live" in the UI; code in `clipper/live.py`)
 

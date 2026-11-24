@@ -21,6 +21,7 @@
     </div>
     <nav>
       <span id="yt-pill" class="pill" title="YouTube connection">YouTube: …</span>
+      <span id="ig-pill" class="pill" title="Instagram connection">Instagram: …</span>
       <button class="btn ghost" id="open-settings">Streamers &amp; settings</button>
     </nav>
   </header>
@@ -157,6 +158,20 @@
       <button type="button" class="btn ghost" id="add-streamer">+ Add streamer</button>
       <h3>YouTube</h3>
       <p class="muted small" id="yt-status"></p>
+      <h3>Instagram</h3>
+      <p class="muted small" id="ig-status"></p>
+      <div id="ig-connect" class="ig-connect hidden">
+        <p class="hint">One-time setup: follow <b>docs/INSTAGRAM_SETUP.md</b>, then paste the three values from Meta here.
+          They're stored only on this PC (data/instagram.json).</p>
+        <div class="grid2">
+          <label>App ID <input id="ig-app-id" autocomplete="off" inputmode="numeric"></label>
+          <label>App secret <input id="ig-app-secret" type="password" autocomplete="off"></label>
+        </div>
+        <label>Access token (from Graph API Explorer) <input id="ig-token" type="password" autocomplete="off"></label>
+        <div class="row-end"><button type="button" class="btn primary" id="ig-connect-btn">Connect Instagram</button></div>
+        <p class="small" id="ig-connect-msg" role="status"></p>
+      </div>
+      <div class="row-end hidden" id="ig-connected"><button type="button" class="btn ghost danger" id="ig-disconnect">Disconnect Instagram</button></div>
       <div class="row-end">
         <button class="btn primary" type="button" id="save-streamers">Save</button>
       </div>
@@ -195,9 +210,14 @@
         <div class="clip-actions">
           <a class="btn ghost dl" download>Download</a>
           <button class="btn ghost save">Save</button>
-          <button class="btn primary yt">Upload ▶</button>
+          <button class="btn primary yt">YouTube ▶</button>
+        </div>
+        <div class="clip-actions">
+          <button class="btn ghost copy-cap" title="Copies the Instagram caption (description, max 30 hashtags)">Copy caption</button>
+          <button class="btn primary ig">Instagram ▶</button>
         </div>
         <p class="small up-status"></p>
+        <p class="small ig-status"></p>
       </div>
     </article>
   </template>

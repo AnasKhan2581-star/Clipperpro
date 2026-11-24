@@ -96,6 +96,9 @@ youtube:
   daily_upload_cap: 6   # free API quota allows ~6 uploads/day
   auto_upload: false
 
+instagram:              # Reels upload (setup: docs/INSTAGRAM_SETUP.md); caption = the clip's description
+  daily_upload_cap: 25  # Instagram itself allows 50 API posts / 24 h; stay well under it
+
 live:                   # "Clip while live": record a live stream and clip it in chunks as it airs
   chunk_minutes: 20     # clip every N minutes (shorter = faster clips, more CPU)
   clips_per_chunk: 2

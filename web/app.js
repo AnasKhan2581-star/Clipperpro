@@ -58,6 +58,38 @@ function renderYt() {
     : (y.client_secret ? "OAuth client found. Run `python -m clipper auth-youtube` (or `docker compose run --service-ports clipper auth-youtube`) to connect." : "Not set up. Follow README → YouTube upload to add data/client_secret.json, then run the auth command.");
   $("#auto_upload").disabled = !y.authorized;
   if (!y.authorized) $("#auto_upload").checked = false;
+  renderIg();
+}
+
+function renderIg() {
+  const ig = state.config.instagram || {};
+  const pill = $("#ig-pill");
+  pill.textContent = ig.connected ? `Instagram ✓ @${ig.username || "?"} ${ig.uploads_24h}/${ig.daily_cap}` : "Instagram: not connected";
+  pill.classList.toggle("on", !!ig.connected);
+  $("#ig-status").textContent = ig.connected
+    ? `Connected as @${ig.username || "?"} (Facebook Page: ${ig.page || "?"}). ${ig.uploads_24h} of ${ig.daily_cap} daily Reels used.`
+    : "Not connected. Without it you can still Download a reel, Copy caption, and post it from your phone or instagram.com.";
+  $("#ig-connect").classList.toggle("hidden", !!ig.connected);
+  $("#ig-connected").classList.toggle("hidden", !ig.connected);
+}
+
+async function connectIg() {
+  const msg = $("#ig-connect-msg"); msg.className = "small"; msg.textContent = "Connecting…";
+  try {
+    await api("api/instagram/connect", { method: "POST", body: JSON.stringify({
+      app_id: $("#ig-app-id").value.trim(), app_secret: $("#ig-app-secret").value.trim(), user_token: $("#ig-token").value.trim() }) });
+    $("#ig-app-secret").value = ""; $("#ig-token").value = "";
+    state.config = await api("api/config"); renderYt();
+    msg.className = "small ok"; msg.textContent = "Connected ✓";
+    lastRenderedClips = ""; renderJob();
+  } catch (e) { msg.className = "small err"; msg.textContent = e.message; }
+}
+
+// Instagram caption = the description, with at most 30 hashtags and 2200 characters (same rule as the server)
+function igCaption(text) {
+  let n = 0;
+  text = (text || "").replace(/(^|[^\w])#\w+/g, (m) => (++n <= 30 ? m : m.replace(/#\w+/, ""))).replace(/[ \t]{2,}/g, " ").trim();
+  return text.length > 2200 ? text.slice(0, 2199).replace(/\s+\S*$/, "") + "…" : text;
 }
 
 function syncLayout() {
@@ -253,16 +285,43 @@ function renderClips(j) {
       };
       $(".yt", el).disabled = !state.config.youtube.authorized;
       $(".yt", el).title = state.config.youtube.authorized ? "Upload to YouTube" : "Connect YouTube first (see Settings)";
+      const igOn = !!(state.config.instagram || {}).connected;
+      $(".ig", el).disabled = !igOn;
+      $(".ig", el).title = igOn ? "Publish as a Reel on Instagram (public, posts right away)" : "Connect Instagram first (see Settings)";
+      $(".ig", el).onclick = async () => {
+        if (!confirm(`Publish "${$(".c-title", el).value}" as a public Reel on @${state.config.instagram.username}? It goes live right away.`)) return;
+        await saveClip(j.id, c.name, el, true);
+        try { await api(`api/jobs/${j.id}/clips/${c.name}/instagram`, { method: "POST" }); setStatus(el, ".ig-status", "Queued for Instagram…", ""); tick(); }
+        catch (e) { setStatus(el, ".ig-status", e.message, "err"); }
+      };
+      $(".copy-cap", el).onclick = async () => {
+        const text = igCaption($(".c-desc", el).value);
+        try { await navigator.clipboard.writeText(text); setStatus(el, ".ig-status", "Caption copied ✓ (paste it in Instagram)", "ok"); }
+        catch { prompt("Copy the caption:", text); }
+      };
       wrap.appendChild(el);
     });
   }
   for (const el of $$(".clip", wrap)) {
-    const u = uploads.filter((x) => x.clip === el.dataset.clip).pop();
-    if (!u) continue;
-    if (u.status === "done") setUp(el, "", "ok", u.url);
-    else if (u.status === "failed") setUp(el, "✘ " + u.error, "err");
-    else setUp(el, u.status === "uploading" ? "Uploading to YouTube…" : "Queued for upload…", "");
+    const mine = uploads.filter((x) => x.clip === el.dataset.clip);
+    const u = mine.filter((x) => (x.platform || "youtube") === "youtube").pop();
+    if (u) {
+      if (u.status === "done") setUp(el, "", "ok", u.url);
+      else if (u.status === "failed") setUp(el, "✘ YouTube: " + u.error, "err");
+      else setUp(el, u.status === "uploading" ? "Uploading to YouTube…" : "Queued for YouTube…", "");
+    }
+    const g = mine.filter((x) => x.platform === "instagram").pop();
+    if (g) {
+      if (g.status === "done") setStatus(el, ".ig-status", "", "ok", g.url, "✔ Live on Instagram ↗");
+      else if (g.status === "failed") setStatus(el, ".ig-status", "✘ " + g.error, "err");
+      else setStatus(el, ".ig-status", g.status === "uploading" ? (g.message || "Uploading to Instagram…") : "Queued for Instagram…", "");
+    }
   }
+}
+
+function setStatus(el, sel, text, cls, url, linkText) {
+  const p = $(sel, el); p.className = `small ${sel.slice(1)} ${cls}`; p.textContent = text;
+  if (url) { const a = document.createElement("a"); a.href = url; a.target = "_blank"; a.rel = "noopener"; a.textContent = linkText || url; p.appendChild(a); }
 }
 
 function bindTrim(j, c, el, video) {
@@ -377,5 +436,10 @@ let resizeT; window.addEventListener("resize", () => { clearTimeout(resizeT); re
 $("#open-settings").addEventListener("click", openSettings);
 $("#add-streamer").addEventListener("click", () => addRow());
 $("#save-streamers").addEventListener("click", saveStreamers);
+$("#ig-connect-btn").addEventListener("click", connectIg);
+$("#ig-disconnect").addEventListener("click", async () => {
+  if (!confirm("Disconnect Instagram? You'd need to paste the setup values again to reconnect.")) return;
+  await api("api/instagram", { method: "DELETE" }); state.config = await api("api/config"); renderYt(); lastRenderedClips = ""; renderJob();
+});
 bindForm();
 loadConfig().then(tick).then(() => { if (state.jobs[0]) openJob(state.jobs[0].id, false); });

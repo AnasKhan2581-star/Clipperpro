@@ -12,7 +12,7 @@ import traceback
 import uuid
 from pathlib import Path
 
-from . import live, pipeline, youtube
+from . import instagram, live, pipeline, youtube
 from .config import DATA_DIR, deep_merge, load_settings
 
 log = logging.getLogger(__name__)
@@ -38,6 +38,11 @@ class Store:
               video_id TEXT, url TEXT, error TEXT, created_at REAL);
             """
         )
+        cols = {r[1] for r in self._db.execute("PRAGMA table_info(uploads)")}
+        if "platform" not in cols:   # older databases: every upload so far was YouTube
+            self._db.execute("ALTER TABLE uploads ADD COLUMN platform TEXT DEFAULT 'youtube'")
+        if "message" not in cols:
+            self._db.execute("ALTER TABLE uploads ADD COLUMN message TEXT")
         # a re-cut interrupted by a restart: the job's clips are still fine
         self._db.execute("UPDATE jobs SET status='done', message='Re-cut interrupted by restart; try again' "
                          "WHERE status='running' AND stage='trim'")
@@ -89,9 +94,9 @@ class Store:
         return d
 
     # uploads ------------------------------------------------------------
-    def add_upload(self, job_id: str, clip: str) -> int:
-        cur = self._exec("INSERT INTO uploads (job_id, clip, status, created_at) VALUES (?,?,?,?)",
-                         (job_id, clip, "queued", time.time()))
+    def add_upload(self, job_id: str, clip: str, platform: str = "youtube") -> int:
+        cur = self._exec("INSERT INTO uploads (job_id, clip, status, created_at, platform) VALUES (?,?,?,?,?)",
+                         (job_id, clip, "queued", time.time(), platform))
         return int(cur.lastrowid)
 
     def set_upload(self, upload_id: int, **fields) -> None:
@@ -103,10 +108,11 @@ class Store:
             rows = self._db.execute("SELECT * FROM uploads WHERE job_id=? ORDER BY id", (job_id,)).fetchall()
         return [dict(r) for r in rows]
 
-    def uploads_last_24h(self) -> int:
+    def uploads_last_24h(self, platform: str = "youtube") -> int:
         with self._lock:
-            row = self._db.execute("SELECT COUNT(*) FROM uploads WHERE status='done' AND created_at>?",
-                                   (time.time() - 86400,)).fetchone()
+            row = self._db.execute("SELECT COUNT(*) FROM uploads WHERE status='done' AND created_at>? "
+                                   "AND COALESCE(platform, 'youtube')=?",
+                                   (time.time() - 86400, platform)).fetchone()
         return int(row[0])
 
 
@@ -229,14 +235,17 @@ class Worker:
                 Path(chat).unlink(missing_ok=True)
 
     # uploads ------------------------------------------------------------
-    def queue_upload(self, job_id: str, clip_name: str) -> int:
-        upload_id = self.store.add_upload(job_id, clip_name)
-        self.uq.put((upload_id, job_id, clip_name))
+    def queue_upload(self, job_id: str, clip_name: str, platform: str = "youtube") -> int:
+        upload_id = self.store.add_upload(job_id, clip_name, platform)
+        self.uq.put((upload_id, job_id, clip_name, platform))
         return upload_id
 
     def _upload_loop(self) -> None:
         while True:
-            upload_id, job_id, clip_name = self.uq.get()
+            upload_id, job_id, clip_name, platform = self.uq.get()
+            if platform == "instagram":
+                self._upload_instagram(upload_id, job_id, clip_name)
+                continue
             try:
                 settings = load_settings()
                 cap = int(settings["youtube"].get("daily_upload_cap", 6))
@@ -253,6 +262,21 @@ class Worker:
                 self.store.set_upload(upload_id, status="done", video_id=res["video_id"], url=res["url"])
             except Exception as exc:
                 self.store.set_upload(upload_id, status="failed", error=str(exc)[:1000])
+
+    def _upload_instagram(self, upload_id: int, job_id: str, clip_name: str) -> None:
+        try:
+            cap = int((load_settings().get("instagram") or {}).get("daily_upload_cap", 25))
+            if self.store.uploads_last_24h("instagram") >= cap:
+                raise instagram.InstagramError(f"Daily Instagram cap reached ({cap}/24h; instagram.daily_upload_cap).")
+            self.store.set_upload(upload_id, status="uploading", message="Starting…")
+            d = self.job_dir(job_id)
+            clip = read_clip(d, clip_name)
+            res = instagram.upload(d / clip["file"], instagram.caption_for(clip),
+                                   progress=lambda m: self.store.set_upload(upload_id, message=m))
+            self.store.set_upload(upload_id, status="done", video_id=res["video_id"], url=res["url"], message=None)
+        except Exception as exc:
+            log.error("instagram upload %s/%s failed: %s", job_id, clip_name, exc)
+            self.store.set_upload(upload_id, status="failed", error=str(exc)[:1000])
 
 
 def _plain_title(info: dict) -> str:
